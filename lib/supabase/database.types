@@ -1,0 +1,222 @@
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export interface Database {
+  public: {
+    Tables: {
+      users: {
+        Row: {
+          id: string
+          email: string
+          full_name: string
+          avatar_url: string | null
+          user_type: 'patient' | 'therapist'
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          email: string
+          full_name: string
+          avatar_url?: string | null
+          user_type: 'patient' | 'therapist'
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          email?: string
+          full_name?: string
+          avatar_url?: string | null
+          user_type?: 'patient' | 'therapist'
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      therapist_profiles: {
+        Row: {
+          id: string
+          specialty: string
+          bio: string | null
+          experience_years: number | null
+          education: string | null
+          license_number: string | null
+          rating: number | null
+          review_count: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          specialty: string
+          bio?: string | null
+          experience_years?: number | null
+          education?: string | null
+          license_number?: string | null
+          rating?: number | null
+          review_count?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          specialty?: string
+          bio?: string | null
+          experience_years?: number | null
+          education?: string | null
+          license_number?: string | null
+          rating?: number | null
+          review_count?: number
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      patient_profiles: {
+        Row: {
+          id: string
+          date_of_birth: string | null
+          address: string | null
+          emergency_contact: string | null
+          issues: string[] | null
+          goals: string | null
+          preferred_therapy_types: string[] | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          date_of_birth?: string | null
+          address?: string | null
+          emergency_contact?: string | null
+          issues?: string[] | null
+          goals?: string | null
+          preferred_therapy_types?: string[] | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          date_of_birth?: string | null
+          address?: string | null
+          emergency_contact?: string | null
+          issues?: string[] | null
+          goals?: string | null
+          preferred_therapy_types?: string[] | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      sessions: {
+        Row: {
+          id: string
+          therapist_id: string
+          patient_id: string
+          scheduled_at: string
+          duration: number
+          status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'rescheduled'
+          session_type: 'video' | 'audio'
+          notes: string | null
+          recording_url: string | null
+          transcript_url: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          therapist_id: string
+          patient_id: string
+          scheduled_at: string
+          duration: number
+          status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'rescheduled'
+          session_type: 'video' | 'audio'
+          notes?: string | null
+          recording_url?: string | null
+          transcript_url?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          therapist_id?: string
+          patient_id?: string
+          scheduled_at?: string
+          duration?: number
+          status?: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'rescheduled'
+          session_type?: 'video' | 'audio'
+          notes?: string | null
+          recording_url?: string | null
+          transcript_url?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      mood_entries: {
+        Row: {
+          id: string
+          user_id: string
+          mood_level: number
+          note: string | null
+          recorded_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          mood_level: number
+          note?: string | null
+          recorded_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          mood_level?: number
+          note?: string | null
+          recorded_at?: string
+        }
+      }
+      therapy_tasks: {
+        Row: {
+          id: string
+          patient_id: string
+          therapist_id: string
+          title: string
+          description: string | null
+          due_date: string | null
+          completed: boolean
+          completed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          patient_id: string
+          therapist_id: string
+          title: string
+          description?: string | null
+          due_date?: string | null
+          completed?: boolean
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          patient_id?: string
+          therapist_id?: string
+          title?: string
+          description?: string | null
+          due_date?: string | null
+          completed?: boolean
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      // Additional tables would be defined here
+    }
+  }
+}

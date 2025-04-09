@@ -1,0 +1,492 @@
+"use client"
+
+import type React from "react"
+
+import { useState, useEffect, useRef } from "react"
+import {
+  ArrowLeft,
+  Brain,
+  ClipboardList,
+  FileText,
+  Mic,
+  MicOff,
+  Monitor,
+  Phone,
+  Search,
+  Video,
+  VideoOff,
+} from "lucide-react"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Badge } from "@/components/ui/badge"
+import { LiveTranscript } from "@/components/live-transcript"
+import { MedicalTermDetector } from "@/components/medical-term-detector"
+import { PatientHistory } from "@/components/patient-history"
+import { TherapyNotes } from "@/components/therapy-notes"
+
+// Mock data
+const sessionData = {
+  id: "1",
+  patient: {
+    name: "John Patient",
+    avatar: "/placeholder.svg?height=80&width=80",
+    issues: "Anxiety, Depression",
+    age: 32,
+    gender: "Male",
+    sessionCount: 8,
+  },
+  date: "May 15, 2025",
+  time: "3:00 PM",
+  duration: "50 minutes",
+  status: "active",
+}
+
+// Mock transcript data
+const transcriptData = [
+  {
+    id: "1",
+    speaker: "Dr. Thomas",
+    text: "Hello John, it's good to see you today. How have you been since our last session?",
+    timestamp: "00:15",
+  },
+  {
+    id: "2",
+    speaker: "John Patient",
+    text: "I've been doing okay. I tried the mindfulness exercises you suggested, and they helped a bit with my anxiety.",
+    timestamp: "00:30",
+  },
+  {
+    id: "3",
+    speaker: "Dr. Thomas",
+    text: "That's great to hear. Can you tell me more about when you practiced the exercises and how they helped?",
+    timestamp: "00:45",
+  },
+  {
+    id: "4",
+    speaker: "John Patient",
+    text: "I tried them in the mornings before work, and also when I felt overwhelmed during the day. They helped me focus on my breathing instead of worrying thoughts.",
+    timestamp: "01:10",
+  },
+  {
+    id: "5",
+    speaker: "Dr. Thomas",
+    text: "That's excellent. Mindfulness can be a powerful tool for managing anxiety in the moment. Let's talk about some additional strategies you might find helpful.",
+    timestamp: "01:30",
+  },
+]
+
+// Mock detected medical terms
+const detectedTerms = [
+  {
+    id: "1",
+    term: "anxiety",
+    definition:
+      "A mental health disorder characterized by feelings of worry, anxiety, or fear that are strong enough to interfere with one's daily activities.",
+    timestamp: "00:30",
+    relatedRecords: true,
+  },
+  {
+    id: "2",
+    term: "mindfulness",
+    definition:
+      "A mental state achieved by focusing one's awareness on the present moment, while calmly acknowledging and accepting one's feelings, thoughts, and bodily sensations.",
+    timestamp: "00:30",
+    relatedRecords: false,
+  },
+  {
+    id: "3",
+    term: "depression",
+    definition:
+      "A mental health disorder characterized by persistently depressed mood or loss of interest in activities, causing significant impairment in daily life.",
+    timestamp: "02:15",
+    relatedRecords: true,
+  },
+]
+
+// Mock patient history
+const patientHistory = {
+  diagnoses: [
+    { condition: "Generalized Anxiety Disorder", diagnosedDate: "January 15, 2024", status: "Active" },
+    { condition: "Major Depressive Disorder", diagnosedDate: "January 15, 2024", status: "Active" },
+  ],
+  medications: [{ name: 'Ser  diagnosedDate: "January 15, 2024', status: "Active" }],
+  medications: [
+    { name: "Sertraline", dosage: "50mg daily", startDate: "February 1, 2024", status: "Current" },
+    { name: "Lorazepam", dosage: "0.5mg as needed", startDate: "February 1, 2024", status: "Current" },
+  ],
+  previousSessions: [
+    {
+      date: "May 8, 2025",
+      notes:
+        "Patient reported improved sleep patterns but continued anxiety in social situations. We practiced mindfulness techniques and discussed cognitive restructuring for negative thoughts.",
+    },
+    {
+      date: "May 1, 2025",
+      notes:
+        "Initial assessment. Patient presents with symptoms of anxiety and depression. Reported difficulty sleeping and persistent worry about work and relationships.",
+    },
+  ],
+  goals: [
+    "Reduce anxiety symptoms",
+    "Improve sleep quality",
+    "Develop coping strategies for stress",
+    "Address negative thought patterns",
+  ],
+}
+
+export default function TherapistSessionPage({ params }: { params: { id: string } }) {
+  const [isConnected, setIsConnected] = useState(false)
+  const [isVideoEnabled, setIsVideoEnabled] = useState(true)
+  const [isAudioEnabled, setIsAudioEnabled] = useState(true)
+  const [chatMessages, setChatMessages] = useState<
+    Array<{
+      sender: string
+      message: string
+      timestamp: string
+    }>
+  >([])
+  const [messageInput, setMessageInput] = useState("")
+  const [sessionNotes, setSessionNotes] = useState("")
+  const [transcript, setTranscript] = useState(transcriptData)
+  const [detectedMedicalTerms, setDetectedMedicalTerms] = useState(detectedTerms)
+  const [sessionTime, setSessionTime] = useState(0)
+  const [aiSuggestions, setAiSuggestions] = useState<string[]>([])
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Simulate connection to video call
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsConnected(true)
+    }, 2000)
+
+    return () => clearTimeout(timer)
+  }, [])
+
+  // Session timer
+  useEffect(() => {
+    if (isConnected && !timerRef.current) {
+      timerRef.current = setInterval(() => {
+        setSessionTime((prev) => prev + 1)
+      }, 1000)
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+      }
+    }
+  }, [isConnected])
+
+  // Format session time
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+  }
+
+  // Simulate live transcript updates
+  useEffect(() => {
+    if (isConnected) {
+      const transcriptInterval = setInterval(() => {
+        // Simulate new transcript entries
+        if (Math.random() > 0.7) {
+          const newEntry = {
+            id: `${transcript.length + 1}`,
+            speaker: Math.random() > 0.5 ? "Dr. Thomas" : "John Patient",
+            text: "This is a simulated live transcript entry to demonstrate real-time transcription during the therapy session.",
+            timestamp: formatTime(sessionTime),
+          }
+          setTranscript((prev) => [...prev, newEntry])
+
+          // Simulate detecting medical terms
+          if (Math.random() > 0.8) {
+            const terms = ["insomnia", "panic attack", "cognitive distortion", "rumination", "social anxiety"]
+            const randomTerm = terms[Math.floor(Math.random() * terms.length)]
+
+            const newTerm = {
+              id: `${detectedMedicalTerms.length + 4}`,
+              term: randomTerm,
+              definition: `This is a definition for ${randomTerm} that would help the therapist understand the concept.`,
+              timestamp: formatTime(sessionTime),
+              relatedRecords: Math.random() > 0.5,
+            }
+
+            setDetectedMedicalTerms((prev) => [...prev, newTerm])
+          }
+        }
+      }, 5000)
+
+      // Simulate AI suggestions for notes
+      const suggestionsInterval = setInterval(() => {
+        if (Math.random() > 0.7) {
+          const suggestions = [
+            "Consider exploring the patient's sleep patterns in more detail.",
+            "The patient mentioned work stress - this might be worth discussing further.",
+            "Patient shows improvement in applying mindfulness techniques.",
+            "Consider assigning a thought record for negative thought patterns.",
+            "Might benefit from additional relaxation techniques for anxiety management.",
+          ]
+
+          const newSuggestion = suggestions[Math.floor(Math.random() * suggestions.length)]
+          if (!aiSuggestions.includes(newSuggestion)) {
+            setAiSuggestions((prev) => [...prev, newSuggestion])
+          }
+        }
+      }, 10000)
+
+      return () => {
+        clearInterval(transcriptInterval)
+        clearInterval(suggestionsInterval)
+      }
+    }
+  }, [isConnected, sessionTime, transcript.length, detectedMedicalTerms.length, aiSuggestions])
+
+  const sendMessage = (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (messageInput.trim()) {
+      setChatMessages([
+        ...chatMessages,
+        {
+          sender: "You",
+          message: messageInput,
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        },
+      ])
+      setMessageInput("")
+
+      // Simulate patient response
+      setTimeout(() => {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            sender: sessionData.patient.name,
+            message: "Thank you, that's helpful to know.",
+            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          },
+        ])
+      }, 3000)
+    }
+  }
+
+  const addSuggestionToNotes = (suggestion: string) => {
+    setSessionNotes((prev) => prev + (prev ? "\n\n" : "") + suggestion)
+    setAiSuggestions((prev) => prev.filter((s) => s !== suggestion))
+  }
+
+  return (
+    <div className="flex flex-col h-screen">
+      <header className="border-b bg-background p-4 sticky top-0 z-10">
+        <div className="container flex items-center gap-4">
+          <Button variant="ghost" size="icon" asChild>
+            <a href="/therapist/dashboard">
+              <ArrowLeft className="h-5 w-5" />
+              <span className="sr-only">Back</span>
+            </a>
+          </Button>
+          <div>
+            <h1 className="text-xl font-bold">Session with {sessionData.patient.name}</h1>
+            <p className="text-sm text-muted-foreground">
+              {sessionData.date} at {sessionData.time} ({sessionData.duration})
+            </p>
+          </div>
+          <Badge
+            variant="outline"
+            className="ml-auto flex items-center gap-1.5 bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-300 border-green-200 dark:border-green-800"
+          >
+            <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
+            Live Session
+          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="font-mono">
+              {formatTime(sessionTime)}
+            </Badge>
+            <Button variant="destructive" size="sm">
+              <Phone className="mr-2 h-4 w-4" />
+              End Call
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex-1 overflow-auto">
+          <div className="container py-6 h-full flex flex-col">
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="md:col-span-2 flex flex-col">
+                <div className="relative bg-muted rounded-lg overflow-hidden flex-1 flex items-center justify-center">
+                  {!isConnected ? (
+                    <div className="text-center p-8">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                      <p className="text-lg font-medium">Connecting to your session...</p>
+                      <p className="text-sm text-muted-foreground">This may take a few moments</p>
+                    </div>
+                  ) : (
+                    <>
+                      {isVideoEnabled ? (
+                        <div className="absolute inset-0 bg-black flex items-center justify-center">
+                          <Avatar className="h-32 w-32">
+                            <AvatarImage src={sessionData.patient.avatar} alt={sessionData.patient.name} />
+                            <AvatarFallback>JP</AvatarFallback>
+                          </Avatar>
+                          <div className="absolute bottom-4 right-4 w-32 h-24 bg-muted rounded-lg overflow-hidden border-2 border-background shadow-lg">
+                            {/* Therapist's video (self view) */}
+                            <div className="w-full h-full bg-black flex items-center justify-center">
+                              <Avatar className="h-10 w-10">
+                                <AvatarImage src="/placeholder.svg?height=40&width=40" alt="You" />
+                                <AvatarFallback>DT</AvatarFallback>
+                              </Avatar>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center p-8 text-center">
+                          <VideoOff className="h-12 w-12 text-muted-foreground mb-4" />
+                          <p className="text-lg font-medium">Video is turned off</p>
+                          <p className="text-sm text-muted-foreground">Click the video button to enable your camera</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-center gap-4 p-4">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className={!isAudioEnabled ? "bg-destructive text-destructive-foreground" : ""}
+                    onClick={() => setIsAudioEnabled(!isAudioEnabled)}
+                  >
+                    {isAudioEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
+                    <span className="sr-only">{isAudioEnabled ? "Disable" : "Enable"} microphone</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className={!isVideoEnabled ? "bg-destructive text-destructive-foreground" : ""}
+                    onClick={() => setIsVideoEnabled(!isVideoEnabled)}
+                  >
+                    {isVideoEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
+                    <span className="sr-only">{isVideoEnabled ? "Disable" : "Enable"} video</span>
+                  </Button>
+                  <Button variant="outline" size="icon">
+                    <Monitor className="h-5 w-5" />
+                    <span className="sr-only">Share screen</span>
+                  </Button>
+                </div>
+              </div>
+
+              <div className="h-full">
+                <Tabs defaultValue="notes" className="h-full flex flex-col">
+                  <TabsList className="grid w-full grid-cols-4">
+                    <TabsTrigger value="notes">Notes</TabsTrigger>
+                    <TabsTrigger value="transcript">Transcript</TabsTrigger>
+                    <TabsTrigger value="terms" className="relative">
+                      Terms
+                      {detectedMedicalTerms.some((term) => !term.viewed) && (
+                        <span className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-red-500"></span>
+                      )}
+                    </TabsTrigger>
+                    <TabsTrigger value="patient">Patient</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="notes" className="flex-1">
+                    <Card className="h-full flex flex-col">
+                      <CardHeader className="py-3">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <ClipboardList className="h-5 w-5 text-blue-600" />
+                          Session Notes
+                          <Badge
+                            variant="outline"
+                            className="ml-auto bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border-blue-200 dark:border-blue-800"
+                          >
+                            Auto-saving
+                          </Badge>
+                        </CardTitle>
+                        <CardDescription>Clinical notes for this session</CardDescription>
+                      </CardHeader>
+                      <CardContent className="flex-1 flex flex-col gap-4 p-0">
+                        <div className="flex-1 flex">
+                          <TherapyNotes
+                            value={sessionNotes}
+                            onChange={setSessionNotes}
+                            suggestions={aiSuggestions}
+                            onUseSuggestion={addSuggestionToNotes}
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+
+                  <TabsContent value="transcript" className="flex-1 flex flex-col">
+                    <Card className="flex-1 flex flex-col">
+                      <CardHeader className="py-3 flex flex-row items-center justify-between space-y-0">
+                        <div>
+                          <CardTitle className="text-lg flex items-center gap-2">
+                            Live Transcript
+                            <Badge
+                              variant="outline"
+                              className="ml-2 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border-blue-200 dark:border-blue-800"
+                            >
+                              Live
+                            </Badge>
+                          </CardTitle>
+                          <CardDescription>Real-time transcription of your session</CardDescription>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button variant="outline" size="sm" className="h-8 gap-1">
+                            <Search className="h-3.5 w-3.5" />
+                            <span>Search</span>
+                          </Button>
+                          <Button variant="outline" size="sm" className="h-8 gap-1">
+                            <FileText className="h-3.5 w-3.5" />
+                            <span>Export</span>
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="flex-1 overflow-hidden p-0">
+                        <LiveTranscript transcript={transcript} />
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+
+                  <TabsContent value="terms" className="flex-1 flex flex-col">
+                    <Card className="flex-1 flex flex-col">
+                      <CardHeader className="py-3">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Brain className="h-5 w-5 text-purple-600" />
+                          Detected Medical Terms
+                        </CardTitle>
+                        <CardDescription>AI-detected terms from your conversation</CardDescription>
+                      </CardHeader>
+                      <CardContent className="flex-1 overflow-hidden p-0">
+                        <MedicalTermDetector terms={detectedMedicalTerms} patientHistory={patientHistory} />
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+
+                  <TabsContent value="patient" className="flex-1">
+                    <Card className="h-full flex flex-col">
+                      <CardHeader className="py-3">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <FileText className="h-5 w-5 text-blue-600" />
+                          Patient Information
+                        </CardTitle>
+                        <CardDescription>Details about {sessionData.patient.name}</CardDescription>
+                      </CardHeader>
+                      <CardContent className="flex-1 overflow-auto">
+                        <PatientHistory patient={sessionData.patient} history={patientHistory} />
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                </Tabs>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
