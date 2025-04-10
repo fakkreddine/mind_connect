@@ -25,6 +25,8 @@ import { LiveTranscript } from "@/components/live-transcript"
 import { MedicalTermDetector } from "@/components/medical-term-detector"
 import { PatientHistory } from "@/components/patient-history"
 import { TherapyNotes } from "@/components/therapy-notes"
+import { startAgoraTranscriptionClient } from "@/lib/transcriptionClient"
+import AgoraTranscription from "@/components/transcribeDemo"
 
 const APP_ID = "f74c9f2bc19849b5b2a2df2aac5db369"
 const TOKEN = "007eJxTYGj84LoqRsC894hG1Z9ah2BbKTuPS8wyJuwmTlcEinRdVRUY0sxNki3TjJKSDS0tTCyTTJOMEo1S0owSE5NNU5KMzSxzeX6kNwQyMuwwvcDCyACBID4LQ1pidgYDAwAr2xvj"
@@ -186,6 +188,10 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
         
         const [micTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks()
         tracksRef.current = [micTrack, cameraTrack]
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const data =startAgoraTranscriptionClient(stream)
+        console.log(data)
+        
         
         await rtcClient.publish([micTrack, cameraTrack])
         if (localVideoRef.current) cameraTrack.play(localVideoRef.current)
@@ -473,6 +479,116 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
     setAiSuggestions((prev) => prev.filter((s) => s !== suggestion))
   }
 
+
+  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
+
+  // Start capturing audio when the component is mounted
+  useEffect(() => {
+    const startAudioCapture = async () => {
+      try {
+        // Use the browser's media devices API to capture audio
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        setMediaStream(stream);  // Set the media stream to start transcription
+      } catch (error) {
+        console.error('Error capturing audio:', error);
+      }
+    };
+
+    startAudioCapture();
+
+    // Clean up the media stream when the component unmounts
+    return () => {
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());  // Stop the tracks to release resources
+      }
+    };
+  }, []);
+
+
+   function AgoraTranscriptionDemo() {
+    const [transcriptionText, setTranscriptionText] = useState<string>("");
+    const [transcriptionActive, setTranscriptionActive] = useState<boolean>(false);
+    // We'll store our transcription client so we can later stop it.
+    let transcriptionClient: { stopTranscription: () => void } | null = null;
+  
+    // This function initializes the Agora RTC tracks, extracts the native audio stream,
+    // and starts the transcription client.
+    async function initTranscription() {
+      try {
+        // Create the Agora microphone and camera tracks.
+        const [micTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
+        
+        // Get the native MediaStreamTrack from the Agora mic track.
+        // (Make sure the Agora track exposes getMediaStreamTrack()—check Agora's docs if needed.)
+        const audioMediaStreamTrack = micTrack.getMediaStreamTrack();
+        
+        // Create a new MediaStream from the native audio track.
+        const audioStream = new MediaStream([audioMediaStreamTrack]);
+  
+        // Start the transcription client using our utility function.
+        // We provide a callback to update the transcript state when new transcript text is received.
+        transcriptionClient = startAgoraTranscriptionClient(audioStream, (text: string) => {
+          // Append or update the transcript text in state.
+          setTranscriptionText((prev) => prev + " " + text);
+        });
+        setTranscriptionActive(true);
+      } catch (error) {
+        console.error("Error initializing Agora transcription:", error);
+      }
+    }
+  
+    // Function to stop the transcription session.
+    const stopTranscription = () => {
+      if (transcriptionClient) {
+        transcriptionClient.stopTranscription();
+        setTranscriptionActive(false);
+      }
+    };
+  
+    // Start transcription when the component mounts.
+    useEffect(() => {
+      initTranscription();
+  
+      // Cleanup: stop transcription on unmount.
+      return () => {
+        if (transcriptionClient) {
+          transcriptionClient.stopTranscription();
+        }
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+  
+    return (
+      <div style={{ padding: "1rem", fontFamily: "Arial, sans-serif" }}>
+        <h1>Agora RTC Live Transcription Demo</h1>
+        <p>This demo captures Agora RTC audio, sends it for live transcription, and displays the transcript text below.</p>
+        
+        <div style={{ marginBottom: "1rem" }}>
+          <textarea
+            value={transcriptionText}
+            readOnly
+            placeholder="Transcript text will appear here..."
+            style={{ width: "100%", height: "200px", padding: "0.5rem", fontSize: "1rem" }}
+          />
+        </div>
+        
+        <div>
+          <button
+            onClick={stopTranscription}
+            disabled={!transcriptionActive}
+            style={{ padding: "0.5rem 1rem" }}
+          >
+            Stop Transcription
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+
+
+
+
   return (
     <div className="flex flex-col h-screen">
       <header className="border-b bg-background p-4 sticky top-0 z-10">
@@ -524,7 +640,7 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
                   <VideoCall onLeave={endSession} />
                 )}
               </div>
-
+              <AgoraTranscriptionDemo></AgoraTranscriptionDemo>
               <div className="h-full">
                 <Tabs defaultValue="notes" className="h-full flex flex-col">
                   <TabsList className="grid w-full grid-cols-4">
