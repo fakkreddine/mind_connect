@@ -543,7 +543,7 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
                     <Card className="h-full flex flex-col">
                       <CardHeader className="py-3">
                         <CardTitle className="text-lg flex items-center gap-2">
-                          <ClipboardList className="h-5 w-5 text-blue-600" />
+                          <ClipboardList className="h-5 w-5 text-blue -600" />
                           Session Notes
                           <Badge
                             variant="outline"
