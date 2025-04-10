@@ -15,6 +15,7 @@ import {
   Video,
   VideoOff,
 } from "lucide-react"
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,7 +26,11 @@ import { MedicalTermDetector } from "@/components/medical-term-detector"
 import { PatientHistory } from "@/components/patient-history"
 import { TherapyNotes } from "@/components/therapy-notes"
 
-// Mock data
+// ... (keep all mock data and session data the same)
+
+const APP_ID = "f74c9f2bc19849b5b2a2df2aac5db369"
+const TOKEN = "007eJxTYJjGU7ci/Nk3dpsL2wQaa4sylO65Jtrdk566T1RBUjc/20yBIc3cJNkyzSgp2dDSwsQyyTTJKNEoJc0oMTHZNCXJ2MyygulHekMgI0N4BxcrIwMEgvjMDCWpxQwMAJg0HLs="
+const CHANNEL = "tes"
 const sessionData = {
   id: "1",
   patient: {
@@ -41,11 +46,6 @@ const sessionData = {
   duration: "50 minutes",
   status: "active",
 }
-
-const APP_ID = "f74c9f2bc19849b5b2a2df2aac5db369" // Replace with your Agora App ID
-const TOKEN = "007eJxTYPg1U/qfd+llk0ksTR9crJdcXOItoiPYvsn4qUnBMY6D8/8pMKSZmyRbphklJRtaWphYJpkmGSUapaQZJSYmm6YkGZtZnjL+nt4QyMhwaYM7CyMDBIL4LAwlqcUlDAwAjTsg+g==" // Use token for production
-const CHANNEL = "test"
-
 // Mock transcript data
 const transcriptData = [
   {
@@ -137,239 +137,144 @@ const patientHistory = {
     "Address negative thought patterns",
   ],
 }
-
-// Client-side only VideoCall component
 const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
   const [isVideoEnabled, setIsVideoEnabled] = useState(true)
   const [isAudioEnabled, setIsAudioEnabled] = useState(true)
-  const [localVideoTrack, setLocalVideoTrack] = useState<any>(null)
-  const [localAudioTrack, setLocalAudioTrack] = useState<any>(null)
   const [remoteUsers, setRemoteUsers] = useState<any[]>([])
-  const [client, setClient] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const localVideoRef = useRef<HTMLDivElement>(null)
-  const remoteVideoRef = useRef<HTMLDivElement>(null)
-  const initialized = useRef(false)
-  const userJoined = useRef(false)
+  const [mainUser, setMainUser] = useState<any>(null)
   
-  // Initialize Agora client on component mount
+  const clientRef = useRef<any>(null)
+  const tracksRef = useRef<any[]>([])
+  const localVideoRef = useRef<HTMLDivElement>(null)
+  const remoteContainerRef = useRef<HTMLDivElement>(null)
+  const smallVideoContainerRef = useRef<HTMLDivElement>(null)
+
+  // Agora initialization
   useEffect(() => {
-    if (initialized.current) return
-    initialized.current = true
-    
-    const initializeAgora = async () => {
+    const initAgora = async () => {
       try {
         setIsLoading(true)
-        
-        // Dynamically import Agora SDK
         const AgoraRTC = (await import('agora-rtc-sdk-ng')).default
-        
-        // Create client
-        const rtcClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
-        setClient(rtcClient)
-        
-        // Setup event handlers for remote users
-        rtcClient.on("user-published", async (user: any, mediaType: string) => {
-          console.log(`User ${user.uid} published ${mediaType} track`)
+        const rtcClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' })
+        clientRef.current = rtcClient
+
+        // Event handlers
+        const handleUserPublished = async (user: any, mediaType: string) => {
           await rtcClient.subscribe(user, mediaType)
-          
-          if (mediaType === "video") {
-            setRemoteUsers(prev => {
-              // Check if user exists
-              const existingUserIndex = prev.findIndex(u => u.uid === user.uid)
-              
-              if (existingUserIndex >= 0) {
-                // Update existing user
-                const updatedUsers = [...prev]
-                updatedUsers[existingUserIndex] = user
-                return updatedUsers
-              } else {
-                // Add new user
-                return [...prev, user]
-              }
-            })
-            
-            // Play the remote video immediately after subscribing
-            if (remoteVideoRef.current) {
-              user.videoTrack?.play(remoteVideoRef.current)
-            }
+          setRemoteUsers(prev => {
+            const existingUser = prev.find(u => u.uid === user.uid)
+            return existingUser 
+              ? prev.map(u => u.uid === user.uid ? { ...u, [mediaType]: user[mediaType + 'Track'] } : u)
+              : [...prev, { 
+                  uid: user.uid, 
+                  video: mediaType === 'video' ? user.videoTrack : null,
+                  audio: mediaType === 'audio' ? user.audioTrack : null
+                }]
+          })
+
+          if (mediaType === 'audio') user.audioTrack?.play()
+          if (mediaType === 'video' && !mainUser) setMainUser(user)
+        }
+
+        const handleUserLeft = (user: any) => {
+          setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid))
+          if (mainUser?.uid === user.uid) {
+            setMainUser(remoteUsers.find(u => u.uid !== user.uid && u.video) || null)
           }
-          
-          if (mediaType === "audio") {
-            user.audioTrack?.play()
-          }
-        })
-        
-        rtcClient.on("user-unpublished", (user: any, mediaType: string) => {
-          console.log(`User ${user.uid} unpublished ${mediaType} track`)
-          if (mediaType === "video") {
-            setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid))
-          }
-        })
-        
-        rtcClient.on("user-joined", (user: any) => {
-          console.log(`User ${user.uid} joined the channel`)
-          userJoined.current = true
-        })
-        
-        rtcClient.on("user-left", (user: any) => {
-          console.log(`User ${user.uid} left the channel`)
+        }
+
+        rtcClient.on('user-published', handleUserPublished)
+        rtcClient.on('user-left', handleUserLeft)
+        rtcClient.on('user-unpublished', (user: any) => {
           setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid))
         })
-        
-        // Join channel
-        const uid = await rtcClient.join(APP_ID, CHANNEL, TOKEN || null, null)
-        console.log(`Joined channel with UID: ${uid}`)
+
+        await rtcClient.join(APP_ID, CHANNEL, TOKEN, null)
         
         // Create and publish local tracks
-        const [microphoneTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
-          {
-            encoderConfig: "high_quality",
-          },
-          {
-            encoderConfig: "1080p",
-            facingMode: "user",
-          }
-        )
+        const [micTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks()
+        tracksRef.current = [micTrack, cameraTrack]
         
-        setLocalAudioTrack(microphoneTrack)
-        setLocalVideoTrack(cameraTrack)
-        
-        // Play local video track in local container
-        if (localVideoRef.current) {
-          localVideoRef.current.innerHTML = ''
-          cameraTrack.play(localVideoRef.current)
-        }
-        
-        // Publish tracks to the channel
-        await rtcClient.publish([microphoneTrack, cameraTrack])
-        console.log("Published local tracks to the channel")
-        
+        await rtcClient.publish([micTrack, cameraTrack])
+        if (localVideoRef.current) cameraTrack.play(localVideoRef.current)
+
         setIsLoading(false)
       } catch (error) {
-        console.error("Failed to initialize Agora client:", error)
+        console.error('Agora initialization failed:', error)
         setIsLoading(false)
       }
     }
-    
-    initializeAgora()
-    
-    // Clean up on component unmount
+
+    initAgora()
+
     return () => {
-      if (localAudioTrack) {
-        localAudioTrack.close()
-      }
-      if (localVideoTrack) {
-        localVideoTrack.close()
-      }
-      if (client) {
-        client.removeAllListeners()
-        client.leave().then(() => console.log("Left the channel"))
+      tracksRef.current.forEach(track => {
+        track?.stop()
+        track?.close()
+      })
+      if (clientRef.current) {
+        clientRef.current.leave()
+        clientRef.current.removeAllListeners()
       }
     }
   }, [])
-  
-  // Effect to handle remote user video playback when remote users change
+
+  // Video display management
   useEffect(() => {
-    if (!remoteVideoRef.current || remoteUsers.length === 0) return
-    
-    console.log(`Handling ${remoteUsers.length} remote users`)
-    
-    // Clear the container first to avoid stacking videos
-    remoteVideoRef.current.innerHTML = ''
-    
-    // Get the latest user and play their video
-    const latestUser = remoteUsers[remoteUsers.length - 1]
-    if (latestUser && latestUser.videoTrack) {
-      console.log(`Playing video for user ${latestUser.uid}`)
-      latestUser.videoTrack.play(remoteVideoRef.current)
-    } else {
-      console.log("No video track available for remote user")
+    if (!remoteContainerRef.current || !smallVideoContainerRef.current) return
+
+    // Clear small videos
+    smallVideoContainerRef.current.innerHTML = ''
+
+    // Update main video
+    if (mainUser?.video) {
+      remoteContainerRef.current.innerHTML = ''
+      mainUser.video.play(remoteContainerRef.current)
     }
-  }, [remoteUsers])
-  
-  // Effect to ensure local video is properly displayed whenever it changes
-  useEffect(() => {
-    if (!localVideoTrack || !localVideoRef.current) return
-    
-    // Only play if video is enabled
-    if (isVideoEnabled) {
-      console.log("Playing local video track")
-      // Clear the container first to prevent duplicate displays
-      localVideoRef.current.innerHTML = ''
-      localVideoTrack.play(localVideoRef.current)
-    }
-  }, [localVideoTrack, isVideoEnabled])
-  
-  // Ensure remote users are playing when remote video ref changes
-  useEffect(() => {
-    if (!remoteVideoRef.current || remoteUsers.length === 0) return
-    
-    // Replay all remote videos when the container changes
-    // This helps when the DOM is ready but videos aren't showing
-    const latestUser = remoteUsers[remoteUsers.length - 1]
-    if (latestUser && latestUser.videoTrack) {
-      // Clear the container first
-      remoteVideoRef.current.innerHTML = ''
-      // Play the video
-      latestUser.videoTrack.play(remoteVideoRef.current)
-    }
-  }, [remoteVideoRef.current])
-  
-  // Toggle camera
-  const toggleCamera = async () => {
-    if (!localVideoTrack) return
-    
-    try {
-      await localVideoTrack.setEnabled(!isVideoEnabled)
+
+    // Create small video elements
+    remoteUsers.forEach((user, index) => {
+      if (!user.video || user.uid === mainUser?.uid) return
+
+      const container = document.createElement('div')
+      container.className = 'fakhri bg-black rounded border-2 border-background overflow-hidden shadow-lg cursor-pointer'
+      container.style.bottom = '4px'
+      container.style.left = `${4 + index * 28}px`
+      container.style.zIndex = '10'
+      container.style.width="500px"
+      container.style.height="300px"
+      container.style.position = 'absolute'
+      container.onclick = () => setMainUser(user)
+      
+      smallVideoContainerRef.current?.appendChild(container)
+      user.video.play(container)
+    })
+  }, [remoteUsers, mainUser])
+
+  // Control functions
+  const toggleCamera = () => {
+    if (tracksRef.current[1]) {
+      tracksRef.current[1].setEnabled(!isVideoEnabled)
       setIsVideoEnabled(!isVideoEnabled)
-      
-      // If turning video back on, ensure it's playing in the container
-      if (!isVideoEnabled && localVideoRef.current) {
-        localVideoRef.current.innerHTML = ''
-        localVideoTrack.play(localVideoRef.current)
-      }
-    } catch (error) {
-      console.error("Failed to toggle camera:", error)
     }
   }
-  
-  // Toggle microphone
-  const toggleMic = async () => {
-    if (!localAudioTrack) return
-    
-    try {
-      await localAudioTrack.setEnabled(!isAudioEnabled)
+
+  const toggleMic = () => {
+    if (tracksRef.current[0]) {
+      tracksRef.current[0].setEnabled(!isAudioEnabled)
       setIsAudioEnabled(!isAudioEnabled)
-    } catch (error) {
-      console.error("Failed to toggle microphone:", error)
     }
   }
-  
-  // Leave channel
+
   const handleLeave = async () => {
-    try {
-      if (localAudioTrack) {
-        localAudioTrack.close()
-      }
-      if (localVideoTrack) {
-        localVideoTrack.close()
-      }
-      
-      if (client) {
-        client.removeAllListeners()
-        await client.leave()
-        console.log("Left the channel successfully")
-      }
-      
-      onLeave()
-    } catch (error) {
-      console.error("Failed to leave the channel:", error)
-      // Still call onLeave even if there was an error
-      onLeave()
+    tracksRef.current.forEach(track => track?.close())
+    if (clientRef.current) {
+      await clientRef.current.leave()
     }
+    onLeave()
   }
-  
+
   if (isLoading) {
     return (
       <div className="relative bg-muted rounded-lg overflow-hidden flex-1 flex items-center justify-center">
@@ -381,72 +286,75 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
       </div>
     )
   }
-  
+
   return (
     <>
       <div className="relative bg-muted rounded-lg overflow-hidden flex-1 flex items-center justify-center">
         <div className="absolute inset-0 bg-black flex items-center justify-center">
-          {/* Main video area - Remote user's video */}
-          <div 
-            ref={remoteVideoRef}
-            className="w-full h-full flex items-center justify-center"
-            id="remote-video-container"
-          >
-            {remoteUsers.length === 0 && (
+          <div ref={remoteContainerRef} className="w-full h-full flex items-center justify-center">
+            {!mainUser?.video && (
               <Avatar className="h-32 w-32">
-                <AvatarImage src={sessionData.patient.avatar} alt={sessionData.patient.name} />
+                <AvatarImage src={sessionData.patient.avatar} />
                 <AvatarFallback>JP</AvatarFallback>
               </Avatar>
             )}
           </div>
           
-          {/* Self view (small window in corner) - always render the container but control visibility */}
-          <div 
-            ref={localVideoRef}
-            className={`absolute bottom-4 right-4 w-32 h-24 bg-black rounded-lg overflow-hidden border-2 border-background shadow-lg z-10`}
-            id="local-video-container"
-          >
+          <div ref={smallVideoContainerRef} className="absolute bottom-32 left-4 flex gap-2"></div>
+          
+          <div ref={localVideoRef} className="absolute bottom-4 right-4 w-32 h-24 bg-black rounded-lg overflow-hidden border-2 border-background shadow-lg z-10">
             {!isVideoEnabled && (
               <div className="w-full h-full flex items-center justify-center text-white">
                 <VideoOff className="h-5 w-5" />
               </div>
             )}
           </div>
+          
+          {remoteUsers.length > 0 && (
+            <div className="absolute top-4 left-4 bg-black/60 text-white px-2 py-1 rounded-md text-sm">
+              {remoteUsers.length} remote {remoteUsers.length === 1 ? 'user' : 'users'} connected
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="flex items-center justify-center gap-4 p-4">
-        <Button
-          variant="outline"
-          size="icon"
-          className={!isAudioEnabled ? "bg-destructive text-destructive-foreground" : ""}
-          onClick={toggleMic}
-        >
-          {isAudioEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
-          <span className="sr-only">{isAudioEnabled ? "Disable" : "Enable"} microphone</span>
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          className={!isVideoEnabled ? "bg-destructive text-destructive-foreground" : ""}
-          onClick={toggleCamera}
-        >
-          {isVideoEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
-          <span className="sr-only">{isVideoEnabled ? "Disable" : "Enable"} video</span>
-        </Button>
-        <Button variant="outline" size="icon">
-          <Monitor className="h-5 w-5" />
-          <span className="sr-only">Share screen</span>
-        </Button>
-        <Button variant="destructive" size="sm" onClick={handleLeave}>
-          <Phone className="mr-2 h-4 w-4" />
-          End Call
-        </Button>
+      <div className="flex items-center justify-between gap-4 p-4">
+        <div className="flex items-center">
+          <span className="text-sm font-medium mr-2">Connected:</span>
+          <Badge variant="outline" className="bg-green-50 text-green-700">
+            {remoteUsers.length + 1} users
+          </Badge>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            className={!isAudioEnabled ? "bg-destructive" : ""}
+            onClick={toggleMic}
+          >
+            {isAudioEnabled ? <Mic /> : <MicOff />}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className={!isVideoEnabled ? "bg-destructive" : ""}
+            onClick={toggleCamera}
+          >
+            {isVideoEnabled ? <Video /> : <VideoOff />}
+          </Button>
+          <Button variant="outline" size="icon">
+            <Monitor />
+          </Button>
+          <Button variant="destructive" onClick={handleLeave}>
+            <Phone className="mr-2" />
+            End Call
+          </Button>
+        </div>
       </div>
     </>
   )
 }
-
 // Main component with dynamic imports for client-side rendering
 export default function TherapistSessionPage({ params }: { params: { id: string } }) {
   const [isConnected, setIsConnected] = useState(false)
@@ -682,7 +590,8 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
                     </Card>
                   </TabsContent>
 
-                  <TabsContent value="transcript" className="flex-1 flex flex-col">
+                      
+<TabsContent value="transcript" className="flex-1 flex flex-col">
                     <Card className="flex-1 flex flex-col">
                       <CardHeader className="py-3 flex flex-row items-center justify-between space-y-0">
                         <div>
