@@ -26,8 +26,6 @@ import { MedicalTermDetector } from "@/components/medical-term-detector"
 import { PatientHistory } from "@/components/patient-history"
 import { TherapyNotes } from "@/components/therapy-notes"
 
-// ... (keep all mock data and session data the same)
-
 const APP_ID = "f74c9f2bc19849b5b2a2df2aac5db369"
 const TOKEN = "007eJxTYGj84LoqRsC894hG1Z9ah2BbKTuPS8wyJuwmTlcEinRdVRUY0sxNki3TjJKSDS0tTCyTTJOMEo1S0owSE5NNU5KMzSxzeX6kNwQyMuwwvcDCyACBID4LQ1pidgYDAwAr2xvj"
 const CHANNEL = "fakh"
@@ -46,7 +44,7 @@ const sessionData = {
   duration: "50 minutes",
   status: "active",
 }
-// Mock transcript data
+
 const transcriptData = [
   {
     id: "1",
@@ -80,7 +78,6 @@ const transcriptData = [
   },
 ]
 
-// Mock detected medical terms
 const detectedTerms = [
   {
     id: "1",
@@ -108,7 +105,6 @@ const detectedTerms = [
   },
 ]
 
-// Mock patient history
 const patientHistory = {
   diagnoses: [
     { condition: "Generalized Anxiety Disorder", diagnosedDate: "January 15, 2024", status: "Active" },
@@ -137,20 +133,20 @@ const patientHistory = {
     "Address negative thought patterns",
   ],
 }
+
 const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
   const [isVideoEnabled, setIsVideoEnabled] = useState(true)
   const [isAudioEnabled, setIsAudioEnabled] = useState(true)
   const [remoteUsers, setRemoteUsers] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [mainUser, setMainUser] = useState<any>(null)
-  
+
   const clientRef = useRef<any>(null)
   const tracksRef = useRef<any[]>([])
   const localVideoRef = useRef<HTMLDivElement>(null)
   const remoteContainerRef = useRef<HTMLDivElement>(null)
   const smallVideoContainerRef = useRef<HTMLDivElement>(null)
 
-  // Agora initialization
   useEffect(() => {
     const initAgora = async () => {
       try {
@@ -159,7 +155,6 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
         const rtcClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' })
         clientRef.current = rtcClient
 
-        // Event handlers
         const handleUserPublished = async (user: any, mediaType: string) => {
           await rtcClient.subscribe(user, mediaType)
           setRemoteUsers(prev => {
@@ -186,13 +181,9 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
 
         rtcClient.on('user-published', handleUserPublished)
         rtcClient.on('user-left', handleUserLeft)
-        rtcClient.on('user-unpublished', (user: any) => {
-          setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid))
-        })
 
         await rtcClient.join(APP_ID, CHANNEL, TOKEN, null)
         
-        // Create and publish local tracks
         const [micTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks()
         tracksRef.current = [micTrack, cameraTrack]
         
@@ -220,30 +211,26 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
     }
   }, [])
 
-  // Video display management
   useEffect(() => {
     if (!remoteContainerRef.current || !smallVideoContainerRef.current) return
 
-    // Clear small videos
     smallVideoContainerRef.current.innerHTML = ''
 
-    // Update main video
     if (mainUser?.video) {
       remoteContainerRef.current.innerHTML = ''
       mainUser.video.play(remoteContainerRef.current)
     }
 
-    // Create small video elements
     remoteUsers.forEach((user, index) => {
       if (!user.video || user.uid === mainUser?.uid) return
 
       const container = document.createElement('div')
-      container.className = 'fakhri bg-black rounded border-2 border-background overflow-hidden shadow-lg cursor-pointer'
+      container.className = 'bg-black rounded border-2 border-background overflow-hidden shadow-lg cursor-pointer'
       container.style.bottom = '4px'
       container.style.left = `${4 + index * 28}px`
       container.style.zIndex = '10'
-      container.style.width="500px"
-      container.style.height="300px"
+      container.style.width = "500px"
+      container.style.height = "300px"
       container.style.position = 'absolute'
       container.onclick = () => setMainUser(user)
       
@@ -252,7 +239,6 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
     })
   }, [remoteUsers, mainUser])
 
-  // Control functions
   const toggleCamera = () => {
     if (tracksRef.current[1]) {
       tracksRef.current[1].setEnabled(!isVideoEnabled)
@@ -355,7 +341,7 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
     </>
   )
 }
-// Main component with dynamic imports for client-side rendering
+
 export default function TherapistSessionPage({ params }: { params: { id: string } }) {
   const [isConnected, setIsConnected] = useState(false)
   const [chatMessages, setChatMessages] = useState<
@@ -373,24 +359,20 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([])
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   
-  // Start session
   const startSession = () => {
     setIsConnected(true)
   }
   
-  // End session
   const endSession = () => {
     setIsConnected(false)
   }
   
-  // Format session time
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
   }
   
-  // Session timer
   useEffect(() => {
     if (isConnected && !timerRef.current) {
       timerRef.current = setInterval(() => {
@@ -406,11 +388,9 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
     }
   }, [isConnected])
 
-  // Simulate live transcript updates
   useEffect(() => {
     if (isConnected) {
       const transcriptInterval = setInterval(() => {
-        // Simulate new transcript entries
         if (Math.random() > 0.7) {
           const newEntry = {
             id: `${transcript.length + 1}`,
@@ -420,7 +400,6 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
           }
           setTranscript((prev) => [...prev, newEntry])
 
-          // Simulate detecting medical terms
           if (Math.random() > 0.8) {
             const terms = ["insomnia", "panic attack", "cognitive distortion", "rumination", "social anxiety"]
             const randomTerm = terms[Math.floor(Math.random() * terms.length)]
@@ -438,7 +417,6 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
         }
       }, 5000)
 
-      // Simulate AI suggestions for notes
       const suggestionsInterval = setInterval(() => {
         if (Math.random() > 0.7) {
           const suggestions = [
@@ -477,7 +455,6 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
       ])
       setMessageInput("")
 
-      // Simulate patient response
       setTimeout(() => {
         setChatMessages((prev) => [
           ...prev,
@@ -590,8 +567,7 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
                     </Card>
                   </TabsContent>
 
-                      
-<TabsContent value="transcript" className="flex-1 flex flex-col">
+                  <TabsContent value="transcript" className="flex-1 flex flex-col">
                     <Card className="flex-1 flex flex-col">
                       <CardHeader className="py-3 flex flex-row items-center justify-between space-y-0">
                         <div>
