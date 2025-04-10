@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect, useRef } from "react"
 import {
   ArrowLeft,
@@ -42,6 +41,10 @@ const sessionData = {
   duration: "50 minutes",
   status: "active",
 }
+
+const APP_ID = "f74c9f2bc19849b5b2a2df2aac5db369" // Replace with your Agora App ID
+const TOKEN = "007eJxTYPg1U/qfd+llk0ksTR9crJdcXOItoiPYvsn4qUnBMY6D8/8pMKSZmyRbphklJRtaWphYJpkmGSUapaQZJSYmm6YkGZtZnjL+nt4QyMhwaYM7CyMDBIL4LAwlqcUlDAwAjTsg+g==" // Use token for production
+const CHANNEL = "test"
 
 // Mock transcript data
 const transcriptData = [
@@ -111,7 +114,6 @@ const patientHistory = {
     { condition: "Generalized Anxiety Disorder", diagnosedDate: "January 15, 2024", status: "Active" },
     { condition: "Major Depressive Disorder", diagnosedDate: "January 15, 2024", status: "Active" },
   ],
-  medications: [{ name: 'Ser  diagnosedDate: "January 15, 2024', status: "Active" }],
   medications: [
     { name: "Sertraline", dosage: "50mg daily", startDate: "February 1, 2024", status: "Current" },
     { name: "Lorazepam", dosage: "0.5mg as needed", startDate: "February 1, 2024", status: "Current" },
@@ -136,10 +138,218 @@ const patientHistory = {
   ],
 }
 
-export default function TherapistSessionPage({ params }: { params: { id: string } }) {
-  const [isConnected, setIsConnected] = useState(false)
+// Client-side only VideoCall component
+const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
   const [isVideoEnabled, setIsVideoEnabled] = useState(true)
   const [isAudioEnabled, setIsAudioEnabled] = useState(true)
+  const [localVideoTrack, setLocalVideoTrack] = useState<any>(null)
+  const [localAudioTrack, setLocalAudioTrack] = useState<any>(null)
+  const [remoteUsers, setRemoteUsers] = useState<any[]>([])
+  const [client, setClient] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const localVideoRef = useRef<HTMLDivElement>(null)
+  const remoteVideoRef = useRef<HTMLDivElement>(null)
+  const initialized = useRef(false)
+  
+  // Initialize Agora client on component mount
+  useEffect(() => {
+    if (initialized.current) return
+    initialized.current = true
+    
+    const initializeAgora = async () => {
+      try {
+        setIsLoading(true)
+        
+        // Dynamically import Agora SDK
+        const AgoraRTC = (await import('agora-rtc-sdk-ng')).default
+        
+        // Create client
+        const rtcClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
+        setClient(rtcClient)
+        
+        // Setup event handlers
+        rtcClient.on("user-published", async (user: any, mediaType: string) => {
+          await rtcClient.subscribe(user, mediaType)
+          
+          if (mediaType === "video") {
+            setRemoteUsers(prev => {
+              // Only add the user if they're not already in the array
+              if (!prev.some(u => u.uid === user.uid)) {
+                return [...prev, user]
+              }
+              return prev
+            })
+            
+            // Make sure to display the remote video properly
+            if (remoteVideoRef.current) {
+              user.videoTrack?.play(remoteVideoRef.current)
+            }
+          }
+          
+          if (mediaType === "audio") {
+            user.audioTrack?.play()
+          }
+        })
+        
+        rtcClient.on("user-unpublished", (user: any) => {
+          setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid))
+        })
+        
+        // Join channel
+        await rtcClient.join(APP_ID, CHANNEL, TOKEN || null, null)
+        
+        // Create and publish local tracks
+        const [microphoneTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks()
+        setLocalAudioTrack(microphoneTrack)
+        setLocalVideoTrack(cameraTrack)
+        
+        // Clear local video container before playing to prevent duplicate displays
+        if (localVideoRef.current) {
+          localVideoRef.current.innerHTML = ''
+          cameraTrack.play(localVideoRef.current)
+        }
+        
+        // Publish tracks
+        await rtcClient.publish([microphoneTrack, cameraTrack])
+        
+        setIsLoading(false)
+      } catch (error) {
+        console.error("Failed to initialize Agora client:", error)
+        setIsLoading(false)
+      }
+    }
+    
+    initializeAgora()
+    
+    // Clean up
+    return () => {
+      if (localAudioTrack) {
+        localAudioTrack.close()
+      }
+      if (localVideoTrack) {
+        localVideoTrack.close()
+      }
+      client?.leave()
+    }
+  }, [])
+  
+  // Effect to handle remote user video playback
+  useEffect(() => {
+    if (remoteUsers.length > 0 && remoteVideoRef.current) {
+      // Clear the container first
+      remoteVideoRef.current.innerHTML = ''
+      
+      // Play the latest remote user's video
+      const latestUser = remoteUsers[remoteUsers.length - 1]
+      if (latestUser.videoTrack) {
+        latestUser.videoTrack.play(remoteVideoRef.current)
+      }
+    }
+  }, [remoteUsers])
+  
+  // Toggle camera
+  const toggleCamera = async () => {
+    if (localVideoTrack) {
+      await localVideoTrack.setEnabled(!isVideoEnabled)
+      setIsVideoEnabled(!isVideoEnabled)
+    }
+  }
+  
+  // Toggle microphone
+  const toggleMic = async () => {
+    if (localAudioTrack) {
+      await localAudioTrack.setEnabled(!isAudioEnabled)
+      setIsAudioEnabled(!isAudioEnabled)
+    }
+  }
+  
+  // Leave channel
+  const handleLeave = async () => {
+    if (localAudioTrack) {
+      localAudioTrack.close()
+    }
+    if (localVideoTrack) {
+      localVideoTrack.close()
+    }
+    
+    await client?.leave()
+    onLeave()
+  }
+  
+  if (isLoading) {
+    return (
+      <div className="relative bg-muted rounded-lg overflow-hidden flex-1 flex items-center justify-center">
+        <div className="text-center p-8">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-lg font-medium">Setting up video call...</p>
+          <p className="text-sm text-muted-foreground">This may take a few moments</p>
+        </div>
+      </div>
+    )
+  }
+  
+  return (
+    <>
+      <div className="relative bg-muted rounded-lg overflow-hidden flex-1 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black flex items-center justify-center">
+          {/* Main video area - Remote user's video */}
+          <div 
+            ref={remoteVideoRef}
+            className="w-full h-full flex items-center justify-center"
+          >
+            {remoteUsers.length === 0 && (
+              <Avatar className="h-32 w-32">
+                <AvatarImage src={sessionData.patient.avatar} alt={sessionData.patient.name} />
+                <AvatarFallback>JP</AvatarFallback>
+              </Avatar>
+            )}
+          </div>
+          
+          {/* Self view (small window in corner) */}
+          {isVideoEnabled && (
+            <div 
+              ref={localVideoRef}
+              className="absolute bottom-4 right-4 w-32 h-24 bg-black rounded-lg overflow-hidden border-2 border-background shadow-lg z-10"
+            ></div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-center gap-4 p-4">
+        <Button
+          variant="outline"
+          size="icon"
+          className={!isAudioEnabled ? "bg-destructive text-destructive-foreground" : ""}
+          onClick={toggleMic}
+        >
+          {isAudioEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
+          <span className="sr-only">{isAudioEnabled ? "Disable" : "Enable"} microphone</span>
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className={!isVideoEnabled ? "bg-destructive text-destructive-foreground" : ""}
+          onClick={toggleCamera}
+        >
+          {isVideoEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
+          <span className="sr-only">{isVideoEnabled ? "Disable" : "Enable"} video</span>
+        </Button>
+        <Button variant="outline" size="icon">
+          <Monitor className="h-5 w-5" />
+          <span className="sr-only">Share screen</span>
+        </Button>
+        <Button variant="destructive" size="sm" onClick={handleLeave}>
+          <Phone className="mr-2 h-4 w-4" />
+          End Call
+        </Button>
+      </div>
+    </>
+  )
+}
+
+// Main component with dynamic imports for client-side rendering
+export default function TherapistSessionPage({ params }: { params: { id: string } }) {
+  const [isConnected, setIsConnected] = useState(false)
   const [chatMessages, setChatMessages] = useState<
     Array<{
       sender: string
@@ -154,16 +364,24 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
   const [sessionTime, setSessionTime] = useState(0)
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([])
   const timerRef = useRef<NodeJS.Timeout | null>(null)
-
-  // Simulate connection to video call
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsConnected(true)
-    }, 2000)
-
-    return () => clearTimeout(timer)
-  }, [])
-
+  
+  // Start session
+  const startSession = () => {
+    setIsConnected(true)
+  }
+  
+  // End session
+  const endSession = () => {
+    setIsConnected(false)
+  }
+  
+  // Format session time
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+  }
+  
   // Session timer
   useEffect(() => {
     if (isConnected && !timerRef.current) {
@@ -175,16 +393,10 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
     return () => {
       if (timerRef.current) {
         clearInterval(timerRef.current)
+        timerRef.current = null
       }
     }
   }, [isConnected])
-
-  // Format session time
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
-  }
 
   // Simulate live transcript updates
   useEffect(() => {
@@ -303,10 +515,6 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
             <Badge variant="secondary" className="font-mono">
               {formatTime(sessionTime)}
             </Badge>
-            <Button variant="destructive" size="sm">
-              <Phone className="mr-2 h-4 w-4" />
-              End Call
-            </Button>
           </div>
         </div>
       </header>
@@ -316,66 +524,20 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
           <div className="container py-6 h-full flex flex-col">
             <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="md:col-span-2 flex flex-col">
-                <div className="relative bg-muted rounded-lg overflow-hidden flex-1 flex items-center justify-center">
-                  {!isConnected ? (
+                {!isConnected ? (
+                  <div className="relative bg-muted rounded-lg overflow-hidden flex-1 flex items-center justify-center">
                     <div className="text-center p-8">
-                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-                      <p className="text-lg font-medium">Connecting to your session...</p>
-                      <p className="text-sm text-muted-foreground">This may take a few moments</p>
+                      <div className="animate-pulse rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                      <p className="text-lg font-medium">Ready to start your session</p>
+                      <p className="text-sm text-muted-foreground mb-4">Connect with your patient</p>
+                      <Button variant="default" onClick={startSession}>
+                        Start Session
+                      </Button>
                     </div>
-                  ) : (
-                    <>
-                      {isVideoEnabled ? (
-                        <div className="absolute inset-0 bg-black flex items-center justify-center">
-                          <Avatar className="h-32 w-32">
-                            <AvatarImage src={sessionData.patient.avatar} alt={sessionData.patient.name} />
-                            <AvatarFallback>JP</AvatarFallback>
-                          </Avatar>
-                          <div className="absolute bottom-4 right-4 w-32 h-24 bg-muted rounded-lg overflow-hidden border-2 border-background shadow-lg">
-                            {/* Therapist's video (self view) */}
-                            <div className="w-full h-full bg-black flex items-center justify-center">
-                              <Avatar className="h-10 w-10">
-                                <AvatarImage src="/placeholder.svg?height=40&width=40" alt="You" />
-                                <AvatarFallback>DT</AvatarFallback>
-                              </Avatar>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center justify-center p-8 text-center">
-                          <VideoOff className="h-12 w-12 text-muted-foreground mb-4" />
-                          <p className="text-lg font-medium">Video is turned off</p>
-                          <p className="text-sm text-muted-foreground">Click the video button to enable your camera</p>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-center gap-4 p-4">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className={!isAudioEnabled ? "bg-destructive text-destructive-foreground" : ""}
-                    onClick={() => setIsAudioEnabled(!isAudioEnabled)}
-                  >
-                    {isAudioEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
-                    <span className="sr-only">{isAudioEnabled ? "Disable" : "Enable"} microphone</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className={!isVideoEnabled ? "bg-destructive text-destructive-foreground" : ""}
-                    onClick={() => setIsVideoEnabled(!isVideoEnabled)}
-                  >
-                    {isVideoEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
-                    <span className="sr-only">{isVideoEnabled ? "Disable" : "Enable"} video</span>
-                  </Button>
-                  <Button variant="outline" size="icon">
-                    <Monitor className="h-5 w-5" />
-                    <span className="sr-only">Share screen</span>
-                  </Button>
-                </div>
+                  </div>
+                ) : (
+                  <VideoCall onLeave={endSession} />
+                )}
               </div>
 
               <div className="h-full">
