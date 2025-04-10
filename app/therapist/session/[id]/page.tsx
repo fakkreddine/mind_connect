@@ -29,8 +29,8 @@ import { TherapyNotes } from "@/components/therapy-notes"
 // ... (keep all mock data and session data the same)
 
 const APP_ID = "f74c9f2bc19849b5b2a2df2aac5db369"
-const TOKEN = "007eJxTYJjGU7ci/Nk3dpsL2wQaa4sylO65Jtrdk566T1RBUjc/20yBIc3cJNkyzSgp2dDSwsQyyTTJKNEoJc0oMTHZNCXJ2MyygulHekMgI0N4BxcrIwMEgvjMDCWpxQwMAJg0HLs="
-const CHANNEL = "tes"
+const TOKEN = "007eJxTYGj84LoqRsC894hG1Z9ah2BbKTuPS8wyJuwmTlcEinRdVRUY0sxNki3TjJKSDS0tTCyTTJOMEo1S0owSE5NNU5KMzSxzeX6kNwQyMuwwvcDCyACBID4LQ1pidgYDAwAr2xvj"
+const CHANNEL = "fakh"
 const sessionData = {
   id: "1",
   patient: {
