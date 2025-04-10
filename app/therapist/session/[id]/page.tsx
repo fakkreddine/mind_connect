@@ -173,17 +173,19 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
           
           if (mediaType === "video") {
             setRemoteUsers(prev => {
-              // Only add the user if they're not already in the array
-              if (!prev.some(u => u.uid === user.uid)) {
+              // Check if user exists
+              const existingUserIndex = prev.findIndex(u => u.uid === user.uid)
+              
+              if (existingUserIndex >= 0) {
+                // Update existing user
+                const updatedUsers = [...prev]
+                updatedUsers[existingUserIndex] = user
+                return updatedUsers
+              } else {
+                // Add new user
                 return [...prev, user]
               }
-              return prev
             })
-            
-            // Make sure to display the remote video properly
-            if (remoteVideoRef.current) {
-              user.videoTrack?.play(remoteVideoRef.current)
-            }
           }
           
           if (mediaType === "audio") {
@@ -203,7 +205,7 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
         setLocalAudioTrack(microphoneTrack)
         setLocalVideoTrack(cameraTrack)
         
-        // Clear local video container before playing to prevent duplicate displays
+        // Play local video track
         if (localVideoRef.current) {
           localVideoRef.current.innerHTML = ''
           cameraTrack.play(localVideoRef.current)
@@ -223,29 +225,38 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
     
     // Clean up
     return () => {
-      if (localAudioTrack) {
-        localAudioTrack.close()
-      }
-      if (localVideoTrack) {
-        localVideoTrack.close()
-      }
+      localAudioTrack?.close()
+      localVideoTrack?.close()
+      client?.removeAllListeners()
       client?.leave()
     }
   }, [])
   
   // Effect to handle remote user video playback
   useEffect(() => {
-    if (remoteUsers.length > 0 && remoteVideoRef.current) {
-      // Clear the container first
+    if (!remoteVideoRef.current) return
+    
+    // Always play the most recent remote user's video in the remote container
+    if (remoteUsers.length > 0) {
+      // Clear the container first to avoid stacking videos
       remoteVideoRef.current.innerHTML = ''
       
-      // Play the latest remote user's video
+      // Get the latest user and play their video
       const latestUser = remoteUsers[remoteUsers.length - 1]
-      if (latestUser.videoTrack) {
+      if (latestUser && latestUser.videoTrack) {
         latestUser.videoTrack.play(remoteVideoRef.current)
       }
     }
   }, [remoteUsers])
+  
+  // Effect to ensure local video is properly displayed
+  useEffect(() => {
+    if (localVideoTrack && localVideoRef.current && isVideoEnabled) {
+      // Re-play local video to ensure it's visible
+      localVideoRef.current.innerHTML = ''
+      localVideoTrack.play(localVideoRef.current)
+    }
+  }, [localVideoTrack, isVideoEnabled])
   
   // Toggle camera
   const toggleCamera = async () => {
@@ -272,7 +283,11 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
       localVideoTrack.close()
     }
     
-    await client?.leave()
+    if (client) {
+      client.removeAllListeners()
+      await client.leave()
+    }
+    
     onLeave()
   }
   
@@ -306,12 +321,16 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
           </div>
           
           {/* Self view (small window in corner) */}
-          {isVideoEnabled && (
-            <div 
-              ref={localVideoRef}
-              className="absolute bottom-4 right-4 w-32 h-24 bg-black rounded-lg overflow-hidden border-2 border-background shadow-lg z-10"
-            ></div>
-          )}
+          <div 
+            ref={localVideoRef}
+            className={`absolute bottom-4 right-4 w-32 h-24 bg-black rounded-lg overflow-hidden border-2 border-background shadow-lg z-10 ${!isVideoEnabled ? 'hidden' : ''}`}
+          >
+            {!isVideoEnabled && (
+              <div className="w-full h-full flex items-center justify-center text-white">
+                <VideoOff className="h-5 w-5" />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
