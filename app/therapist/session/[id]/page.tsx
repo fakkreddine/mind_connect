@@ -150,6 +150,7 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
   const localVideoRef = useRef<HTMLDivElement>(null)
   const remoteVideoRef = useRef<HTMLDivElement>(null)
   const initialized = useRef(false)
+  const userJoined = useRef(false)
   
   // Initialize Agora client on component mount
   useEffect(() => {
@@ -167,8 +168,9 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
         const rtcClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
         setClient(rtcClient)
         
-        // Setup event handlers
+        // Setup event handlers for remote users
         rtcClient.on("user-published", async (user: any, mediaType: string) => {
+          console.log(`User ${user.uid} published ${mediaType} track`)
           await rtcClient.subscribe(user, mediaType)
           
           if (mediaType === "video") {
@@ -186,6 +188,11 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
                 return [...prev, user]
               }
             })
+            
+            // Play the remote video immediately after subscribing
+            if (remoteVideoRef.current) {
+              user.videoTrack?.play(remoteVideoRef.current)
+            }
           }
           
           if (mediaType === "audio") {
@@ -193,26 +200,50 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
           }
         })
         
-        rtcClient.on("user-unpublished", (user: any) => {
+        rtcClient.on("user-unpublished", (user: any, mediaType: string) => {
+          console.log(`User ${user.uid} unpublished ${mediaType} track`)
+          if (mediaType === "video") {
+            setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid))
+          }
+        })
+        
+        rtcClient.on("user-joined", (user: any) => {
+          console.log(`User ${user.uid} joined the channel`)
+          userJoined.current = true
+        })
+        
+        rtcClient.on("user-left", (user: any) => {
+          console.log(`User ${user.uid} left the channel`)
           setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid))
         })
         
         // Join channel
-        await rtcClient.join(APP_ID, CHANNEL, TOKEN || null, null)
+        const uid = await rtcClient.join(APP_ID, CHANNEL, TOKEN || null, null)
+        console.log(`Joined channel with UID: ${uid}`)
         
         // Create and publish local tracks
-        const [microphoneTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks()
+        const [microphoneTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
+          {
+            encoderConfig: "high_quality",
+          },
+          {
+            encoderConfig: "1080p",
+            facingMode: "user",
+          }
+        )
+        
         setLocalAudioTrack(microphoneTrack)
         setLocalVideoTrack(cameraTrack)
         
-        // Play local video track
+        // Play local video track in local container
         if (localVideoRef.current) {
           localVideoRef.current.innerHTML = ''
           cameraTrack.play(localVideoRef.current)
         }
         
-        // Publish tracks
+        // Publish tracks to the channel
         await rtcClient.publish([microphoneTrack, cameraTrack])
+        console.log("Published local tracks to the channel")
         
         setIsLoading(false)
       } catch (error) {
@@ -223,72 +254,120 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
     
     initializeAgora()
     
-    // Clean up
+    // Clean up on component unmount
     return () => {
-      localAudioTrack?.close()
-      localVideoTrack?.close()
-      client?.removeAllListeners()
-      client?.leave()
+      if (localAudioTrack) {
+        localAudioTrack.close()
+      }
+      if (localVideoTrack) {
+        localVideoTrack.close()
+      }
+      if (client) {
+        client.removeAllListeners()
+        client.leave().then(() => console.log("Left the channel"))
+      }
     }
   }, [])
   
-  // Effect to handle remote user video playback
+  // Effect to handle remote user video playback when remote users change
   useEffect(() => {
-    if (!remoteVideoRef.current) return
+    if (!remoteVideoRef.current || remoteUsers.length === 0) return
     
-    // Always play the most recent remote user's video in the remote container
-    if (remoteUsers.length > 0) {
-      // Clear the container first to avoid stacking videos
-      remoteVideoRef.current.innerHTML = ''
-      
-      // Get the latest user and play their video
-      const latestUser = remoteUsers[remoteUsers.length - 1]
-      if (latestUser && latestUser.videoTrack) {
-        latestUser.videoTrack.play(remoteVideoRef.current)
-      }
+    console.log(`Handling ${remoteUsers.length} remote users`)
+    
+    // Clear the container first to avoid stacking videos
+    remoteVideoRef.current.innerHTML = ''
+    
+    // Get the latest user and play their video
+    const latestUser = remoteUsers[remoteUsers.length - 1]
+    if (latestUser && latestUser.videoTrack) {
+      console.log(`Playing video for user ${latestUser.uid}`)
+      latestUser.videoTrack.play(remoteVideoRef.current)
+    } else {
+      console.log("No video track available for remote user")
     }
   }, [remoteUsers])
   
-  // Effect to ensure local video is properly displayed
+  // Effect to ensure local video is properly displayed whenever it changes
   useEffect(() => {
-    if (localVideoTrack && localVideoRef.current && isVideoEnabled) {
-      // Re-play local video to ensure it's visible
+    if (!localVideoTrack || !localVideoRef.current) return
+    
+    // Only play if video is enabled
+    if (isVideoEnabled) {
+      console.log("Playing local video track")
+      // Clear the container first to prevent duplicate displays
       localVideoRef.current.innerHTML = ''
       localVideoTrack.play(localVideoRef.current)
     }
   }, [localVideoTrack, isVideoEnabled])
   
+  // Ensure remote users are playing when remote video ref changes
+  useEffect(() => {
+    if (!remoteVideoRef.current || remoteUsers.length === 0) return
+    
+    // Replay all remote videos when the container changes
+    // This helps when the DOM is ready but videos aren't showing
+    const latestUser = remoteUsers[remoteUsers.length - 1]
+    if (latestUser && latestUser.videoTrack) {
+      // Clear the container first
+      remoteVideoRef.current.innerHTML = ''
+      // Play the video
+      latestUser.videoTrack.play(remoteVideoRef.current)
+    }
+  }, [remoteVideoRef.current])
+  
   // Toggle camera
   const toggleCamera = async () => {
-    if (localVideoTrack) {
+    if (!localVideoTrack) return
+    
+    try {
       await localVideoTrack.setEnabled(!isVideoEnabled)
       setIsVideoEnabled(!isVideoEnabled)
+      
+      // If turning video back on, ensure it's playing in the container
+      if (!isVideoEnabled && localVideoRef.current) {
+        localVideoRef.current.innerHTML = ''
+        localVideoTrack.play(localVideoRef.current)
+      }
+    } catch (error) {
+      console.error("Failed to toggle camera:", error)
     }
   }
   
   // Toggle microphone
   const toggleMic = async () => {
-    if (localAudioTrack) {
+    if (!localAudioTrack) return
+    
+    try {
       await localAudioTrack.setEnabled(!isAudioEnabled)
       setIsAudioEnabled(!isAudioEnabled)
+    } catch (error) {
+      console.error("Failed to toggle microphone:", error)
     }
   }
   
   // Leave channel
   const handleLeave = async () => {
-    if (localAudioTrack) {
-      localAudioTrack.close()
+    try {
+      if (localAudioTrack) {
+        localAudioTrack.close()
+      }
+      if (localVideoTrack) {
+        localVideoTrack.close()
+      }
+      
+      if (client) {
+        client.removeAllListeners()
+        await client.leave()
+        console.log("Left the channel successfully")
+      }
+      
+      onLeave()
+    } catch (error) {
+      console.error("Failed to leave the channel:", error)
+      // Still call onLeave even if there was an error
+      onLeave()
     }
-    if (localVideoTrack) {
-      localVideoTrack.close()
-    }
-    
-    if (client) {
-      client.removeAllListeners()
-      await client.leave()
-    }
-    
-    onLeave()
   }
   
   if (isLoading) {
@@ -311,6 +390,7 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
           <div 
             ref={remoteVideoRef}
             className="w-full h-full flex items-center justify-center"
+            id="remote-video-container"
           >
             {remoteUsers.length === 0 && (
               <Avatar className="h-32 w-32">
@@ -320,10 +400,11 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
             )}
           </div>
           
-          {/* Self view (small window in corner) */}
+          {/* Self view (small window in corner) - always render the container but control visibility */}
           <div 
             ref={localVideoRef}
-            className={`absolute bottom-4 right-4 w-32 h-24 bg-black rounded-lg overflow-hidden border-2 border-background shadow-lg z-10 ${!isVideoEnabled ? 'hidden' : ''}`}
+            className={`absolute bottom-4 right-4 w-32 h-24 bg-black rounded-lg overflow-hidden border-2 border-background shadow-lg z-10`}
+            id="local-video-container"
           >
             {!isVideoEnabled && (
               <div className="w-full h-full flex items-center justify-center text-white">
