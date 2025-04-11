@@ -1,7 +1,6 @@
-"use client"
+"use client" 
 
-import type React from "react"
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, FormEvent } from "react"
 import {
   ArrowLeft,
   Brain,
@@ -14,6 +13,8 @@ import {
   Search,
   Video,
   VideoOff,
+  Download,
+  Copy
 } from "lucide-react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -21,17 +22,134 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import { LiveTranscript } from "@/components/live-transcript"
 import { MedicalTermDetector } from "@/components/medical-term-detector"
 import { PatientHistory } from "@/components/patient-history"
 import { TherapyNotes } from "@/components/therapy-notes"
-import { startAgoraTranscriptionClient } from "@/lib/transcriptionClient"
-import AgoraTranscription from "@/components/transcribeDemo"
 
 const APP_ID = "f74c9f2bc19849b5b2a2df2aac5db369"
 const TOKEN = "007eJxTYGj84LoqRsC894hG1Z9ah2BbKTuPS8wyJuwmTlcEinRdVRUY0sxNki3TjJKSDS0tTCyTTJOMEo1S0owSE5NNU5KMzSxzeX6kNwQyMuwwvcDCyACBID4LQ1pidgYDAwAr2xvj"
 const CHANNEL = "fakh"
-const sessionData = {
+
+// Types
+interface TranscriptEntry {
+  id: string;
+  speaker: string;
+  text: string;
+  timestamp: string;
+  isInterim?: boolean;
+}
+
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+  resultIndex: number;
+}
+
+interface SpeechRecognitionResult {
+  isFinal: boolean;
+  [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
+}
+
+interface SpeechRecognitionResultList {
+  length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  maxAlternatives: number;
+  onaudioend: (event: Event) => void;
+  onaudiostart: (event: Event) => void;
+  onend: (event: Event) => void;
+  onerror: (event: Event & { error: string }) => void;
+  onnomatch: (event: Event) => void;
+  onresult: (event: SpeechRecognitionEvent) => void;
+  onsoundend: (event: Event) => void;
+  onsoundstart: (event: Event) => void;
+  onspeechend: (event: Event) => void;
+  onspeechstart: (event: Event) => void;
+  onstart: (event: Event) => void;
+  start(): void;
+  stop(): void;
+  abort(): void;
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition: new () => SpeechRecognition;
+    webkitSpeechRecognition: new () => SpeechRecognition;
+  }
+}
+
+interface Term {
+  id: string;
+  term: string;
+  definition: string;
+  timestamp: string;
+  relatedRecords: boolean;
+  viewed?: boolean;
+}
+
+interface Patient {
+  name: string;
+  avatar: string;
+  issues: string;
+  age: number;
+  gender: string;
+  sessionCount: number;
+}
+
+interface SessionData {
+  id: string;
+  patient: Patient;
+  date: string;
+  time: string;
+  duration: string;
+  status: string;
+}
+
+interface PatientHistoryData {
+  diagnoses: Array<{
+    condition: string;
+    diagnosedDate: string;
+    status: string;
+  }>;
+  medications: Array<{
+    name: string;
+    dosage: string;
+    startDate: string;
+    status: string;
+  }>;
+  previousSessions: Array<{
+    date: string;
+    notes: string;
+  }>;
+  goals: string[];
+}
+
+interface ChatMessage {
+  sender: string;
+  message: string;
+  timestamp: string;
+}
+
+interface VideoCallProps {
+  onLeave: () => void;
+  onTranscript?: (text: string, isFinal: boolean, speaker?: string) => void;
+}
+
+// Session data
+const sessionData: SessionData = {
   id: "1",
   patient: {
     name: "John Patient",
@@ -47,40 +165,7 @@ const sessionData = {
   status: "active",
 }
 
-const transcriptData = [
-  {
-    id: "1",
-    speaker: "Dr. Thomas",
-    text: "Hello John, it's good to see you today. How have you been since our last session?",
-    timestamp: "00:15",
-  },
-  {
-    id: "2",
-    speaker: "John Patient",
-    text: "I've been doing okay. I tried the mindfulness exercises you suggested, and they helped a bit with my anxiety.",
-    timestamp: "00:30",
-  },
-  {
-    id: "3",
-    speaker: "Dr. Thomas",
-    text: "That's great to hear. Can you tell me more about when you practiced the exercises and how they helped?",
-    timestamp: "00:45",
-  },
-  {
-    id: "4",
-    speaker: "John Patient",
-    text: "I tried them in the mornings before work, and also when I felt overwhelmed during the day. They helped me focus on my breathing instead of worrying thoughts.",
-    timestamp: "01:10",
-  },
-  {
-    id: "5",
-    speaker: "Dr. Thomas",
-    text: "That's excellent. Mindfulness can be a powerful tool for managing anxiety in the moment. Let's talk about some additional strategies you might find helpful.",
-    timestamp: "01:30",
-  },
-]
-
-const detectedTerms = [
+const initialTerms: Term[] = [
   {
     id: "1",
     term: "anxiety",
@@ -107,7 +192,7 @@ const detectedTerms = [
   },
 ]
 
-const patientHistory = {
+const patientHistory: PatientHistoryData = {
   diagnoses: [
     { condition: "Generalized Anxiety Disorder", diagnosedDate: "January 15, 2024", status: "Active" },
     { condition: "Major Depressive Disorder", diagnosedDate: "January 15, 2024", status: "Active" },
@@ -136,7 +221,149 @@ const patientHistory = {
   ],
 }
 
-const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
+// Helper functions
+const formatTime = (seconds: number) => {
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+}
+
+// Speech recognition service
+class TranscriptionService {
+  private recognition: SpeechRecognition | null = null;
+  private isListening = false;
+  private onTranscriptCallback: ((text: string, isFinal: boolean, speaker?: string) => void) | null = null;
+  private currentSpeaker = "Dr. Thomas";
+  private restartTimeout: NodeJS.Timeout | null = null;
+
+  constructor() {
+    this.initialize();
+  }
+
+  private initialize() {
+    if (typeof window !== 'undefined') {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      
+      if (!SpeechRecognition) {
+        console.error("Speech Recognition API not supported in this browser");
+        return;
+      }
+      
+      this.recognition = new SpeechRecognition();
+      this.recognition.continuous = true;
+      this.recognition.interimResults = true;
+      this.recognition.lang = 'en-US';
+      
+      this.recognition.onresult = this.handleRecognitionResult.bind(this);
+      this.recognition.onerror = this.handleRecognitionError.bind(this);
+      this.recognition.onend = this.handleRecognitionEnd.bind(this);
+    }
+  }
+
+  private handleRecognitionResult(event: SpeechRecognitionEvent) {
+    if (!this.onTranscriptCallback) return;
+    
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const result = event.results[i];
+      const transcript = result[0].transcript.trim();
+      
+      if (!transcript) continue;
+      
+      this.onTranscriptCallback(
+        transcript,
+        result.isFinal,
+        this.currentSpeaker
+      );
+    }
+  }
+
+  private handleRecognitionError(event: Event & { error: string }) {
+    console.error('Speech recognition error:', event.error);
+    this.isListening = false;
+    
+    if (event.error === 'not-allowed') {
+      toast({
+        title: "Microphone access denied",
+        description: "Please allow microphone access to use speech recognition.",
+        variant: "destructive"
+      });
+    } else if (event.error === 'network') {
+      toast({
+        title: "Network error",
+        description: "Check your internet connection and try again.",
+        variant: "destructive"
+      });
+    }
+  }
+
+  private handleRecognitionEnd() {
+    // Auto-restart if still in listening state but recognition stopped
+    if (this.isListening && this.recognition) {
+      // Use a small delay to prevent rapid restart loops
+      this.restartTimeout = setTimeout(() => {
+        try {
+          this.recognition?.start();
+        } catch (error) {
+          console.error('Error restarting speech recognition:', error);
+          this.isListening = false;
+        }
+      }, 1000);
+    }
+  }
+
+  public start(callback: (text: string, isFinal: boolean, speaker?: string) => void) {
+    if (!this.recognition) {
+      this.initialize();
+      
+      if (!this.recognition) {
+        toast({
+          title: "Speech recognition unavailable",
+          description: "Your browser doesn't support speech recognition.",
+          variant: "destructive"
+        });
+        return false;
+      }
+    }
+    
+    this.onTranscriptCallback = callback;
+    
+    try {
+      this.recognition.start();
+      this.isListening = true;
+      return true;
+    } catch (error) {
+      console.error('Error starting speech recognition:', error);
+      this.isListening = false;
+      return false;
+    }
+  }
+
+  public stop() {
+    if (this.recognition && this.isListening) {
+      this.recognition.stop();
+      this.isListening = false;
+      
+      if (this.restartTimeout) {
+        clearTimeout(this.restartTimeout);
+        this.restartTimeout = null;
+      }
+      
+      return true;
+    }
+    return false;
+  }
+
+  public isActive(): boolean {
+    return this.isListening;
+  }
+
+  public setSpeaker(speaker: string) {
+    this.currentSpeaker = speaker;
+  }
+}
+
+// VideoCall component
+const VideoCall = ({ onLeave, onTranscript }: VideoCallProps) => {
   const [isVideoEnabled, setIsVideoEnabled] = useState(true)
   const [isAudioEnabled, setIsAudioEnabled] = useState(true)
   const [remoteUsers, setRemoteUsers] = useState<any[]>([])
@@ -170,7 +397,13 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
                 }]
           })
 
-          if (mediaType === 'audio') user.audioTrack?.play()
+          if (mediaType === 'audio') {
+            user.audioTrack?.play()
+            
+            // Simulate speech from remote user for transcript
+           
+          }
+          
           if (mediaType === 'video' && !mainUser) setMainUser(user)
         }
 
@@ -189,9 +422,6 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
         const [micTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks()
         tracksRef.current = [micTrack, cameraTrack]
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const data =startAgoraTranscriptionClient(stream)
-        console.log(data)
-        
         
         await rtcClient.publish([micTrack, cameraTrack])
         if (localVideoRef.current) cameraTrack.play(localVideoRef.current)
@@ -200,6 +430,12 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
       } catch (error) {
         console.error('Agora initialization failed:', error)
         setIsLoading(false)
+        
+        toast({
+          title: "Video connection failed",
+          description: "Could not connect to video service. Please try again.",
+          variant: "destructive"
+        })
       }
     }
 
@@ -319,25 +555,55 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
         </div>
         
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            className={!isAudioEnabled ? "bg-destructive" : ""}
-            onClick={toggleMic}
-          >
-            {isAudioEnabled ? <Mic /> : <MicOff />}
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            className={!isVideoEnabled ? "bg-destructive" : ""}
-            onClick={toggleCamera}
-          >
-            {isVideoEnabled ? <Video /> : <VideoOff />}
-          </Button>
-          <Button variant="outline" size="icon">
-            <Monitor />
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={!isAudioEnabled ? "bg-destructive" : ""}
+                  onClick={toggleMic}
+                >
+                  {isAudioEnabled ? <Mic /> : <MicOff />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isAudioEnabled ? "Mute microphone" : "Unmute microphone"}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={!isVideoEnabled ? "bg-destructive" : ""}
+                  onClick={toggleCamera}
+                >
+                  {isVideoEnabled ? <Video /> : <VideoOff />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isVideoEnabled ? "Turn off camera" : "Turn on camera"}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="icon">
+                  <Monitor />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Share screen
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          
           <Button variant="destructive" onClick={handleLeave}>
             <Phone className="mr-2" />
             End Call
@@ -348,107 +614,232 @@ const VideoCall = ({ onLeave }: { onLeave: () => void }) => {
   )
 }
 
+// Main component
 export default function TherapistSessionPage({ params }: { params: { id: string } }) {
   const [isConnected, setIsConnected] = useState(false)
-  const [chatMessages, setChatMessages] = useState<
-    Array<{
-      sender: string
-      message: string
-      timestamp: string
-    }>
-  >([])
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [messageInput, setMessageInput] = useState("")
   const [sessionNotes, setSessionNotes] = useState("")
-  const [transcript, setTranscript] = useState(transcriptData)
-  const [detectedMedicalTerms, setDetectedMedicalTerms] = useState(detectedTerms)
+  const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
+  const [detectedMedicalTerms, setDetectedMedicalTerms] = useState<Term[]>(initialTerms)
   const [sessionTime, setSessionTime] = useState(0)
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([])
+  const [isListening, setIsListening] = useState(false)
+  const [speechRecognitionSupported, setSpeechRecognitionSupported] = useState(true)
+  const transcriptionServiceRef = useRef<TranscriptionService | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
+  const transcriptExportRef = useRef<HTMLAnchorElement | null>(null)
+  
+  // Initialize transcription service
+  useEffect(() => {
+    try {
+      transcriptionServiceRef.current = new TranscriptionService();
+      setSpeechRecognitionSupported(true);
+    } catch (error) {
+      console.error("Failed to initialize transcription service:", error);
+      setSpeechRecognitionSupported(false);
+    }
+    
+    return () => {
+      if (transcriptionServiceRef.current?.isActive()) {
+        transcriptionServiceRef.current.stop();
+      }
+    };
+  }, []);
+  
+  const handleTranscriptData = (text: string, isFinal: boolean, speaker: string = "Dr. Thomas") => {
+    setTranscript(prev => {
+      // Filter out interim entries
+      const filteredTranscript = prev.filter(entry => !entry.isInterim);
+      
+      if (isFinal) {
+        // Add as final entry
+        return [...filteredTranscript, {
+          id: `final-${Date.now()}`,
+          speaker,
+          text,
+          timestamp: formatTime(sessionTime),
+          isInterim: false
+        }];
+      } else {
+        // Add as interim entry (will be replaced by next update)
+        return [...filteredTranscript, {
+          id: `interim-${Date.now()}`,
+          speaker,
+          text,
+          timestamp: formatTime(sessionTime),
+          isInterim: true
+        }];
+      }
+    });
+    
+    // Process for medical terms when final
+    if (isFinal) {
+      detectMedicalTerms(text);
+      generateAISuggestion(text);
+    }
+  };
+  
+  const toggleSpeechRecognition = () => {
+    if (!transcriptionServiceRef.current) return;
+    
+    if (isListening) {
+      const stopped = transcriptionServiceRef.current.stop();
+      if (stopped) setIsListening(false);
+    } else {
+      const started = transcriptionServiceRef.current.start(handleTranscriptData);
+      if (started) setIsListening(true);
+    }
+  };
+  
+  // Medical term detection (simplified simulation)
+  const detectMedicalTerms = (text: string) => {
+    const terms = [
+      { term: "insomnia", definition: "Persistent problems falling and staying asleep." },
+      { term: "anxiety", definition: "Feelings of worry, nervousness, or unease about something." },
+      { term: "depression", definition: "Feelings of severe despondency and dejection." },
+      { term: "panic attack", definition: "A sudden episode of intense fear triggering severe physical reactions." },
+      { term: "cognitive restructuring", definition: "A therapeutic technique for identifying and disputing irrational thoughts." },
+      { term: "mindfulness", definition: "A mental state achieved by focusing awareness on the present moment." }
+    ];
+    
+    const textLower = text.toLowerCase();
+    
+    for (const term of terms) {
+      if (textLower.includes(term.term)) {
+        const newTerm = {
+          id: `term-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+          term: term.term,
+          definition: term.definition,
+          timestamp: formatTime(sessionTime),
+          relatedRecords: Math.random() > 0.5,
+        };
+        
+        setDetectedMedicalTerms(prev => {
+          // Check if we already detected this term recently
+          const existingTerm = prev.find(t => 
+            t.term === newTerm.term && 
+            parseInt(t.timestamp.split(':')[0]) * 60 + parseInt(t.timestamp.split(':')[1]) > 
+            sessionTime - 120 // Don't add duplicate terms within 2 minutes
+          );
+          
+          if (existingTerm) return prev;
+          return [...prev, newTerm];
+        });
+      }
+    }
+  };
+  
+  // AI suggestion generation (simulation)
+  const generateAISuggestion = (text: string) => {
+    const textLower = text.toLowerCase();
+    
+    const suggestions = [
+      { trigger: "sleep", suggestion: "Consider exploring the patient's sleep hygiene practices and routines." },
+      { trigger: "work", suggestion: "Workplace stressors appear significant - explore impact on daily functioning." },
+      { trigger: "family", suggestion: "Family dynamics may be contributing to current symptoms - consider further exploration." },
+      { trigger: "anxious", suggestion: "Patient shows anxiety symptoms - consider screening for generalized anxiety disorder." },
+      { trigger: "sad", suggestion: "Note signs of depressed mood - monitor for clinical depression indicators." }
+    ];
+    
+    for (const s of suggestions) {
+      if (textLower.includes(s.trigger)) {
+        setAiSuggestions(prev => {
+          if (prev.includes(s.suggestion)) return prev;
+          return [...prev, s.suggestion];
+        });
+        break;
+      }
+    }
+  };
   
   const startSession = () => {
-    setIsConnected(true)
-  }
+    setIsConnected(true);
+  };
   
   const endSession = () => {
-    setIsConnected(false)
-  }
+    setIsConnected(false);
+    if (isListening && transcriptionServiceRef.current) {
+      transcriptionServiceRef.current.stop();
+      setIsListening(false);
+    }
+  };
   
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
-  }
-  
+  // Session timer
   useEffect(() => {
     if (isConnected && !timerRef.current) {
       timerRef.current = setInterval(() => {
-        setSessionTime((prev) => prev + 1)
-      }, 1000)
+        setSessionTime((prev) => prev + 1);
+      }, 1000);
     }
 
     return () => {
       if (timerRef.current) {
-        clearInterval(timerRef.current)
-        timerRef.current = null
+        clearInterval(timerRef.current);
+        timerRef.current = null;
       }
-    }
-  }, [isConnected])
+    };
+  }, [isConnected]);
 
-  useEffect(() => {
-    if (isConnected) {
-      const transcriptInterval = setInterval(() => {
-        if (Math.random() > 0.7) {
-          const newEntry = {
-            id: `${transcript.length + 1}`,
-            speaker: Math.random() > 0.5 ? "Dr. Thomas" : "John Patient",
-            text: "This is a simulated live transcript entry to demonstrate real-time transcription during the therapy session.",
-            timestamp: formatTime(sessionTime),
-          }
-          setTranscript((prev) => [...prev, newEntry])
+  // Export transcript functionality
+  const exportTranscript = () => {
+    // Format transcript data for export
+    const formattedData = transcript
+      .filter(entry => !entry.isInterim)
+      .map(entry => `[${entry.timestamp}] ${entry.speaker}: ${entry.text}`)
+      .join('\n\n');
+    
+    const header = `Session Transcript: ${sessionData.patient.name}\nDate: ${sessionData.date}\nDuration: ${formatTime(sessionTime)}\n\n`;
+    const content = header + formattedData;
+    
+    // Create a blob and download link
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `transcript_${sessionData.patient.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    
+    // Clean up
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+    }, 100);
+    
+    toast({
+      title: "Transcript exported",
+      description: "Session transcript has been downloaded successfully."
+    });
+  };
+  
+  // Copy transcript to clipboard
+  const copyTranscriptToClipboard = () => {
+    const formattedData = transcript
+      .filter(entry => !entry.isInterim)
+      .map(entry => `[${entry.timestamp}] ${entry.speaker}: ${entry.text}`)
+      .join('\n\n');
+    
+    navigator.clipboard.writeText(formattedData)
+      .then(() => {
+        toast({
+          title: "Copied to clipboard",
+          description: "Transcript copied to clipboard successfully."
+        });
+      })
+      .catch(err => {
+        console.error('Could not copy text:', err);
+        toast({
+          title: "Copy failed",
+          description: "Could not copy transcript to clipboard.",
+          variant: "destructive"
+        });
+      });
+  };
 
-          if (Math.random() > 0.8) {
-            const terms = ["insomnia", "panic attack", "cognitive distortion", "rumination", "social anxiety"]
-            const randomTerm = terms[Math.floor(Math.random() * terms.length)]
-
-            const newTerm = {
-              id: `${detectedMedicalTerms.length + 4}`,
-              term: randomTerm,
-              definition: `This is a definition for ${randomTerm} that would help the therapist understand the concept.`,
-              timestamp: formatTime(sessionTime),
-              relatedRecords: Math.random() > 0.5,
-            }
-
-            setDetectedMedicalTerms((prev) => [...prev, newTerm])
-          }
-        }
-      }, 5000)
-
-      const suggestionsInterval = setInterval(() => {
-        if (Math.random() > 0.7) {
-          const suggestions = [
-            "Consider exploring the patient's sleep patterns in more detail.",
-            "The patient mentioned work stress - this might be worth discussing further.",
-            "Patient shows improvement in applying mindfulness techniques.",
-            "Consider assigning a thought record for negative thought patterns.",
-            "Might benefit from additional relaxation techniques for anxiety management.",
-          ]
-
-          const newSuggestion = suggestions[Math.floor(Math.random() * suggestions.length)]
-          if (!aiSuggestions.includes(newSuggestion)) {
-            setAiSuggestions((prev) => [...prev, newSuggestion])
-          }
-        }
-      }, 10000)
-
-      return () => {
-        clearInterval(transcriptInterval)
-        clearInterval(suggestionsInterval)
-      }
-    }
-  }, [isConnected, sessionTime, transcript.length, detectedMedicalTerms.length, aiSuggestions])
-
-  const sendMessage = (e: React.FormEvent) => {
-    e.preventDefault()
+  const sendMessage = (e: FormEvent) => {
+    e.preventDefault();
 
     if (messageInput.trim()) {
       setChatMessages([
@@ -458,8 +849,8 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
           message: messageInput,
           timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         },
-      ])
-      setMessageInput("")
+      ]);
+      setMessageInput("");
 
       setTimeout(() => {
         setChatMessages((prev) => [
@@ -469,125 +860,15 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
             message: "Thank you, that's helpful to know.",
             timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           },
-        ])
-      }, 3000)
+        ]);
+      }, 3000);
     }
-  }
+  };
 
   const addSuggestionToNotes = (suggestion: string) => {
-    setSessionNotes((prev) => prev + (prev ? "\n\n" : "") + suggestion)
-    setAiSuggestions((prev) => prev.filter((s) => s !== suggestion))
-  }
-
-
-  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
-
-  // Start capturing audio when the component is mounted
-  useEffect(() => {
-    const startAudioCapture = async () => {
-      try {
-        // Use the browser's media devices API to capture audio
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setMediaStream(stream);  // Set the media stream to start transcription
-      } catch (error) {
-        console.error('Error capturing audio:', error);
-      }
-    };
-
-    startAudioCapture();
-
-    // Clean up the media stream when the component unmounts
-    return () => {
-      if (mediaStream) {
-        mediaStream.getTracks().forEach(track => track.stop());  // Stop the tracks to release resources
-      }
-    };
-  }, []);
-
-
-   function AgoraTranscriptionDemo() {
-    const [transcriptionText, setTranscriptionText] = useState<string>("");
-    const [transcriptionActive, setTranscriptionActive] = useState<boolean>(false);
-    // We'll store our transcription client so we can later stop it.
-    let transcriptionClient: { stopTranscription: () => void } | null = null;
-  
-    // This function initializes the Agora RTC tracks, extracts the native audio stream,
-    // and starts the transcription client.
-    async function initTranscription() {
-      try {
-        // Create the Agora microphone and camera tracks.
-        const [micTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
-        
-        // Get the native MediaStreamTrack from the Agora mic track.
-        // (Make sure the Agora track exposes getMediaStreamTrack()—check Agora's docs if needed.)
-        const audioMediaStreamTrack = micTrack.getMediaStreamTrack();
-        
-        // Create a new MediaStream from the native audio track.
-        const audioStream = new MediaStream([audioMediaStreamTrack]);
-  
-        // Start the transcription client using our utility function.
-        // We provide a callback to update the transcript state when new transcript text is received.
-        transcriptionClient = startAgoraTranscriptionClient(audioStream, (text: string) => {
-          // Append or update the transcript text in state.
-          setTranscriptionText((prev) => prev + " " + text);
-        });
-        setTranscriptionActive(true);
-      } catch (error) {
-        console.error("Error initializing Agora transcription:", error);
-      }
-    }
-  
-    // Function to stop the transcription session.
-    const stopTranscription = () => {
-      if (transcriptionClient) {
-        transcriptionClient.stopTranscription();
-        setTranscriptionActive(false);
-      }
-    };
-  
-    // Start transcription when the component mounts.
-    useEffect(() => {
-      initTranscription();
-  
-      // Cleanup: stop transcription on unmount.
-      return () => {
-        if (transcriptionClient) {
-          transcriptionClient.stopTranscription();
-        }
-      };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-  
-    return (
-      <div style={{ padding: "1rem", fontFamily: "Arial, sans-serif" }}>
-        <h1>Agora RTC Live Transcription Demo</h1>
-        <p>This demo captures Agora RTC audio, sends it for live transcription, and displays the transcript text below.</p>
-        
-        <div style={{ marginBottom: "1rem" }}>
-          <textarea
-            value={transcriptionText}
-            readOnly
-            placeholder="Transcript text will appear here..."
-            style={{ width: "100%", height: "200px", padding: "0.5rem", fontSize: "1rem" }}
-          />
-        </div>
-        
-        <div>
-          <button
-            onClick={stopTranscription}
-            disabled={!transcriptionActive}
-            style={{ padding: "0.5rem 1rem" }}
-          >
-            Stop Transcription
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-
-
-
+    setSessionNotes((prev) => prev + (prev ? "\n\n" : "") + suggestion);
+    setAiSuggestions((prev) => prev.filter((s) => s !== suggestion));
+  };
 
   return (
     <div className="flex flex-col h-screen">
@@ -637,15 +918,23 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
                     </div>
                   </div>
                 ) : (
-                  <VideoCall onLeave={endSession} />
+                  <VideoCall 
+                    onLeave={endSession} 
+                    onTranscript={handleTranscriptData} 
+                  />
                 )}
               </div>
-              <AgoraTranscriptionDemo></AgoraTranscriptionDemo>
+
               <div className="h-full">
-                <Tabs defaultValue="notes" className="h-full flex flex-col">
+                <Tabs defaultValue="transcript" className="h-full flex flex-col">
                   <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="notes">Notes</TabsTrigger>
-                    <TabsTrigger value="transcript">Transcript</TabsTrigger>
+                    <TabsTrigger value="transcript" className="relative">
+                      Transcript
+                      {isListening && (
+                        <span className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
+                      )}
+                    </TabsTrigger>
                     <TabsTrigger value="terms" className="relative">
                       Terms
                       {detectedMedicalTerms.some((term) => !term.viewed) && (
@@ -659,7 +948,7 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
                     <Card className="h-full flex flex-col">
                       <CardHeader className="py-3">
                         <CardTitle className="text-lg flex items-center gap-2">
-                          <ClipboardList className="h-5 w-5 text-blue -600" />
+                          <ClipboardList className="h-5 w-5 text-blue-600" />
                           Session Notes
                           <Badge
                             variant="outline"
@@ -689,28 +978,101 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
                         <div>
                           <CardTitle className="text-lg flex items-center gap-2">
                             Live Transcript
-                            <Badge
-                              variant="outline"
-                              className="ml-2 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border-blue-200 dark:border-blue-800"
-                            >
-                              Live
-                            </Badge>
+                            {isListening && (
+                              <Badge
+                                variant="outline"
+                                className="ml-2 bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-300 border-green-200 dark:border-green-800"
+                              >
+                                <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse mr-1"></span>
+                                Recording
+                              </Badge>
+                            )}
                           </CardTitle>
                           <CardDescription>Real-time transcription of your session</CardDescription>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Button variant="outline" size="sm" className="h-8 gap-1">
-                            <Search className="h-3.5 w-3.5" />
-                            <span>Search</span>
-                          </Button>
-                          <Button variant="outline" size="sm" className="h-8 gap-1">
-                            <FileText className="h-3.5 w-3.5" />
-                            <span>Export</span>
-                          </Button>
+                          {speechRecognitionSupported && (
+                            <Button
+                              variant={isListening ? "default" : "outline"}
+                              size="sm"
+                              className="h-8 gap-1"
+                              onClick={toggleSpeechRecognition}
+                            >
+                              {isListening ? (
+                                <>
+                                  <MicOff className="h-3.5 w-3.5" />
+                                  <span>Stop Dictation</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Mic className="h-3.5 w-3.5" />
+                                  <span>Start Dictation</span>
+                                </>
+                              )}
+                            </Button>
+                          )}
+                          
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button 
+                                  variant="outline"
+                                  size="sm" 
+                                  className="h-8 gap-1"
+                                  onClick={copyTranscriptToClipboard}
+                                  disabled={transcript.length === 0}
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                  <span className="sr-only md:not-sr-only md:inline-block">Copy</span>
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Copy transcript to clipboard
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                          
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className="h-8 gap-1"
+                                  onClick={exportTranscript}
+                                  disabled={transcript.length === 0}
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                  <span className="sr-only md:not-sr-only md:inline-block">Export</span>
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Export transcript as text file
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         </div>
                       </CardHeader>
                       <CardContent className="flex-1 overflow-hidden p-0">
-                        <LiveTranscript transcript={transcript} />
+                        {transcript.length > 0 ? (
+                          <LiveTranscript transcript={transcript} />
+                        ) : (
+                          <div className="flex items-center justify-center h-full text-center p-4">
+                            <div>
+                              <p className="text-muted-foreground mb-2">No transcript data yet</p>
+                              {speechRecognitionSupported && !isListening && (
+                                <Button 
+                                  variant="outline" 
+                                  size="sm"
+                                  onClick={toggleSpeechRecognition}
+                                >
+                                  <Mic className="h-4 w-4 mr-2" />
+                                  Start Transcription
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   </TabsContent>
