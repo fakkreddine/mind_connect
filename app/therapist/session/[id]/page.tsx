@@ -31,8 +31,8 @@ import { MedicalTermDetector } from "@/components/medical-term-detector"
 import { PatientHistory } from "@/components/patient-history"
 import { TherapyNotes } from "@/components/therapy-notes"
 
-const APP_ID = "f74c9f2bc19849b5b2a2df2aac5db369"
-const TOKEN = "007eJxTYGj84LoqRsC894hG1Z9ah2BbKTuPS8wyJuwmTlcEinRdVRUY0sxNki3TjJKSDS0tTCyTTJOMEo1S0owSE5NNU5KMzSxzeX6kNwQyMuwwvcDCyACBID4LQ1pidgYDAwAr2xvj"
+const APP_ID = "bbe2e75e364a4ac4b90dfbb535a6ea62"
+const TOKEN = "007eJxTYJh4RWP6OYm1cfsbnT/7bnna781al2ZRPf/07MfRazi+bvRUYEgzN0m2TDNKSja0tDCxTDJNMko0SkkzSkxMNk1JMjazXJ/8M70hkJHhZdZRVkYGCATxWRjSErMzGBgA5ogiOA=="
 const CHANNEL = "fakh"
 
 const client = new Client()
