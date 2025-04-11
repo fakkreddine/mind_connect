@@ -1,5 +1,6 @@
 "use client" 
 
+import { Client } from 'appwrite';
 import { useState, useEffect, useRef, FormEvent } from "react"
 import {
   ArrowLeft,
@@ -16,7 +17,8 @@ import {
   Download,
   Copy
 } from "lucide-react"
-
+import {Query} from "appwrite" 
+import {  Databases } from "appwrite";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -33,7 +35,16 @@ const APP_ID = "f74c9f2bc19849b5b2a2df2aac5db369"
 const TOKEN = "007eJxTYGj84LoqRsC894hG1Z9ah2BbKTuPS8wyJuwmTlcEinRdVRUY0sxNki3TjJKSDS0tTCyTTJOMEo1S0owSE5NNU5KMzSxzeX6kNwQyMuwwvcDCyACBID4LQ1pidgYDAwAr2xvj"
 const CHANNEL = "fakh"
 
+const client = new Client()
+    .setEndpoint('https://cloud.appwrite.io/v1') // Your API Endpoint
+    .setProject('67f88408001a412f92c2');
+    
+    
+    
+    
+      // Your project ID
 // Types
+const databases = new Databases(client);  
 interface TranscriptEntry {
   id: string;
   speaker: string;
@@ -165,32 +176,7 @@ const sessionData: SessionData = {
   status: "active",
 }
 
-const initialTerms: Term[] = [
-  {
-    id: "1",
-    term: "anxiety",
-    definition:
-      "A mental health disorder characterized by feelings of worry, anxiety, or fear that are strong enough to interfere with one's daily activities.",
-    timestamp: "00:30",
-    relatedRecords: true,
-  },
-  {
-    id: "2",
-    term: "mindfulness",
-    definition:
-      "A mental state achieved by focusing one's awareness on the present moment, while calmly acknowledging and accepting one's feelings, thoughts, and bodily sensations.",
-    timestamp: "00:30",
-    relatedRecords: false,
-  },
-  {
-    id: "3",
-    term: "depression",
-    definition:
-      "A mental health disorder characterized by persistently depressed mood or loss of interest in activities, causing significant impairment in daily life.",
-    timestamp: "02:15",
-    relatedRecords: true,
-  },
-]
+
 
 const patientHistory: PatientHistoryData = {
   diagnoses: [
@@ -278,9 +264,9 @@ class TranscriptionService {
   }
 
   private handleRecognitionError(event: Event & { error: string }) {
-    console.error('Speech recognition error:', event.error);
-    this.isListening = false;
-    
+    console.log('Speech recognition error:', event.error);
+    //this.isListening = false;
+    this.initialize()
     if (event.error === 'not-allowed') {
       toast({
         title: "Microphone access denied",
@@ -613,7 +599,7 @@ const VideoCall = ({ onLeave, onTranscript }: VideoCallProps) => {
     </>
   )
 }
-
+ 
 // Main component
 export default function TherapistSessionPage({ params }: { params: { id: string } }) {
   const [isConnected, setIsConnected] = useState(false)
@@ -621,7 +607,8 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
   const [messageInput, setMessageInput] = useState("")
   const [sessionNotes, setSessionNotes] = useState("")
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
-  const [detectedMedicalTerms, setDetectedMedicalTerms] = useState<Term[]>(initialTerms)
+  const [trans, settrans] = useState<any[]>([]); 
+  const [detectedMedicalTerms, setinitialTerms] = useState<any>([])
   const [sessionTime, setSessionTime] = useState(0)
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([])
   const [isListening, setIsListening] = useState(false)
@@ -629,7 +616,38 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
   const transcriptionServiceRef = useRef<TranscriptionService | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const transcriptExportRef = useRef<HTMLAnchorElement | null>(null)
+  const savetranscript = async (data: any) => {
+    try {
+      // Check if data is an array before using .map()
+      if (Array.isArray(data) && data.length > 0) {
+        // Use a for loop for async operations instead of map
+        const combinedText = data
+      .map((doc: any) => `${doc.text}`)
+      .join("\n");
+        const text={
+        
+          text: combinedText,
+          
+        }
+        await databases.createDocument(
+          "67f88468000c5671a7b9",         // Replace with your Database ID
+          "67f921ab00114b508a09",         // Replace with your Collection ID
+          "unique()",                    // Let Appwrite generate a unique ID
+          text
+        );
+        console.log("Transcript saved");
+      } else {
+        console.error('Invalid data: Expected a non-empty array');
+      }
+    } catch (e) {
+      console.error('Error in savetranscript:', e);
+    }
+  };
   
+  useEffect(()=>{
+    console.log("fakhri,,",transcript)
+
+  },[transcript])
   // Initialize transcription service
   useEffect(() => {
     try {
@@ -637,7 +655,7 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
       setSpeechRecognitionSupported(true);
     } catch (error) {
       console.error("Failed to initialize transcription service:", error);
-      setSpeechRecognitionSupported(false);
+      //setSpeechRecognitionSupported(false);
     }
     
     return () => {
@@ -646,8 +664,105 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
       }
     };
   }, []);
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (trans && trans.length > 0) {
+        savetranscript(trans);
+        console.log("data sent");
+      }
+    }, 3000);
   
+    // Clean up the interval when the component unmounts
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [trans]);
+
+
+  const sendSummaryToAPI = async (text: any) => {
+    try {
+      const response = await fetch('https://b218-165-50-228-24.ngrok-free.app/notetaking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(text)
+      });
+  
+      const data = await response.json(); // ✅ This parses the response body
+      const ai_summary=data.ai_summary
+      const regex = /Summary:\s*(.*)\s*Advice:\s*(.*)\s*Key Terms:\s*(.*)/;
+      const match = ai_summary.match(regex);
+      if (match) {
+        const summary = match[1]; // The part after "Summary:"
+        const advice = match[2];  // The part after "Advice:"
+        const keyTerms = match[3]; // The part after "Key Terms:"
+      
+        console.log('Summary:', summary);
+        console.log('Advice:', advice);
+        console.log('Key Terms:', keyTerms);
+        setinitialTerms((prev: any)=>[...prev,{
+
+          "term":keyTerms,
+          "definition":summary+" "+advice,
+          latedRecords: false,
+
+
+
+        }])
+      } else {
+        console.log('No match found');
+      }
+  // ✅ Now you're logging the actual data
+  
+    } catch (error) {
+      console.error("Error sending summary:", error);
+    }
+  }
+  
+  
+  useEffect(() => {
+    const intervalId = setInterval(async () => {
+      try {
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+        // Fetch all documents from the collection
+        const response = await databases.listDocuments(
+          '67f88468000c5671a7b9',     // ✅ REQUIRED
+          '67f921ab00114b508a09',   // ✅ REQUIRED
+          [
+            Query.greaterThan('$createdAt', fiveMinutesAgo),
+            Query.orderDesc('$createdAt'),
+            Query.limit(1)
+          ]
+        );
+        
+        // Combine all the text from the fetched documents into one string
+        const combinedText = response.documents
+          .map((doc: any) => doc.text) // No need for template string here
+          .join("\n");
+          
+        const payload = { "transcriptedText": combinedText };
+  
+        // Log or send the combined text
+        
+        // Send it to the API
+        await sendSummaryToAPI(payload);
+        
+      } catch (error) {
+        console.error("Error while fetching and summarizing transcripts:", error);
+      }
+    }, 100000); // Runs every 60 seconds
+  
+    // Clean up the interval when the component unmounts
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [trans]); // Make sure 'trans' is defined in your component
   const handleTranscriptData = (text: string, isFinal: boolean, speaker: string = "Dr. Thomas") => {
+    settrans((prev: any) => {
+      return [
+        ...prev,
+        { speaker, text, timestamp: formatTime(sessionTime) }
+      ];
+    });
     setTranscript(prev => {
       // Filter out interim entries
       const filteredTranscript = prev.filter(entry => !entry.isInterim);
