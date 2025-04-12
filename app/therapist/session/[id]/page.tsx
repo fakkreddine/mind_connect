@@ -453,13 +453,13 @@ const VideoCall = ({ onLeave, onTranscript }: VideoCallProps) => {
       if (!user.video || user.uid === mainUser?.uid) return
 
       const container = document.createElement('div')
-      container.className = 'bg-black rounded border-2 border-background overflow-hidden shadow-lg cursor-pointer'
+      container.className = 'fakhri bg-black rounded border-2 border-background overflow-hidden shadow-lg cursor-pointer'
       container.style.bottom = '4px'
       container.style.left = `${4 + index * 28}px`
       container.style.zIndex = '10'
-      container.style.width = "500px"
-      container.style.height = "300px"
-      container.style.position = 'absolute'
+      container.style.width = "800px"
+      container.style.height = "600px"
+      container.style.position = ''
       container.onclick = () => setMainUser(user)
       
       smallVideoContainerRef.current?.appendChild(container)
@@ -749,7 +749,7 @@ export default function TherapistSessionPage({ params }: { params: { id: string 
       } catch (error) {
         console.error("Error while fetching and summarizing transcripts:", error);
       }
-    }, 100000); // Runs every 60 seconds
+    }, 10000); // Runs every 60 seconds
   
     // Clean up the interval when the component unmounts
     return () => {
